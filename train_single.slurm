@@ -13,7 +13,7 @@
 source /media02/ddien02/datnd/miniconda3/etc/profile.d/conda.sh
 conda activate /media02/ddien02/thanhxuan217/envs/sikubert
 
-data="training_data.txt"
+data="/data"
 feat="SIKU-BERT"
 method="blstm.crf"
 batchsize=50
@@ -21,7 +21,7 @@ batchsize=50
 python -u run.py train_single \
     -p \
     --feat=$feat \
-    --data=dataset/$data \
+    --data=$data \
     --batch_size=$batchsize \
     -f=exp/$feat.$method.crf_last.nopunc.clr.llm \
     > log/train/$feat.$method.crf_last.llm.nopunc.clr.log 2>&1

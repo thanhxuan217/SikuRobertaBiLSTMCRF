@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=sikubert_cnn
-#SBATCH --output=softmax_logs/slurm_%j.out
-#SBATCH --error=softmax_logs/slurm_%j.err
+#SBATCH --output=logs/slurm_%j.out
+#SBATCH --error=logs/slurm_%j.err
 #SBATCH --partition=batch
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -13,7 +13,7 @@
 source /media02/ddien02/datnd/miniconda3/etc/profile.d/conda.sh
 conda activate /media02/ddien02/thanhxuan217/envs/sikubert
 
-data="training_data.txt"
+data="/data"
 feat="SIKU-BERT"
 method="blstm.crf"
 batchsize=50
@@ -21,7 +21,7 @@ batchsize=50
 python -u run.py train \
     -p \
     --feat=$feat \
-    --data=dataset/$data \
+    --data=$data \
     --batch_size=$batchsize \
     -f=exp/$feat.$method.gram.nopunc.clr.llm \
     > log/train/$feat.$method.gram.llm.nopunc.clr.log 2>&1

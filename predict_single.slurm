@@ -13,9 +13,9 @@
 source /media02/ddien02/datnd/miniconda3/etc/profile.d/conda.sh
 conda activate /media02/ddien02/thanhxuan217/envs/sikubert
 
-data="training_data.txt"
-pred_data_file="EvaHan2024_testset.txt"
-pred_data_file_zz="EvaHan2024_testsetzz.txt"
+data="/data"
+pred_data_file="test"
+pred_data_file_zz="test"
 pred_path="result.a.txt"
 pred_path_zz="result.zz.a.txt"
 
@@ -26,8 +26,8 @@ batchsize=512
 python -u run.py predict_single \
     -p \
     --feat=$feat \
-    --data=dataset/$data \
-    --pred_data=dataset/$pred_data_file \
+    --data=$data \
+    --pred_data=$data/$pred_data_file \
     --pred_path=TestPredict/$pred_path \
     --batch_size=$batchsize \
     -f=exp/$feat.$method.crf_last.nopunc.clr.llm \
@@ -36,8 +36,8 @@ python -u run.py predict_single \
 python -u run.py predict_single \
     -p \
     --feat=$feat \
-    --data=dataset/$data \
-    --pred_data=dataset/$pred_data_file_zz \
+    --data=$data \
+    --pred_data=$data/$pred_data_file_zz \
     --pred_path=TestPredict/$pred_path_zz \
     --batch_size=$batchsize \
     -f=exp/$feat.$method.crf_last.nopunc.clr.llm \

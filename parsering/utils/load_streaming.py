@@ -1,4 +1,5 @@
 import torch
+import os
 from datasets import load_dataset
 from transformers import AutoTokenizer
 from ..utils.common import pad, bos, eos
@@ -6,8 +7,9 @@ from parsering.task_config import get_task_config
 
 
 class ParquetStreamingDataset(torch.utils.data.IterableDataset):
-    def __init__(self, data_dir, split, tokenizer, labels_dic, pad_id, is_crf2=False):
-        self.dataset = load_dataset('parquet', data_dir=data_dir, split=split, streaming=True)
+    def __init__(self, data_path, tokenizer, labels_dic, pad_id, is_crf2=False):
+        # Explicit data_files mapping matching exactly any parquet files in the targeted data directory
+        self.dataset = load_dataset('parquet', data_files=f"{data_path}/*.parquet", split='train', streaming=True)
         self.tokenizer = tokenizer
         self.labels_dic = labels_dic
         self.pad_id = pad_id
@@ -90,9 +92,12 @@ class Load:
         # Determine if we're yielding a 2-tag element (for gram models)
         self.is_crf2 = ('gram' in args.mode)
         
-        self.train_dataset = ParquetStreamingDataset('data', 'train', self.tokenizer, self.labels_dic, self.pad_id, self.is_crf2)
+        train_path = os.path.join(args.data, "train")
+        val_path = os.path.join(args.data, "val")
+        
+        self.train_dataset = ParquetStreamingDataset(train_path, self.tokenizer, self.labels_dic, self.pad_id, self.is_crf2)
         try:
-            self.val_dataset = ParquetStreamingDataset('data', 'validation', self.tokenizer, self.labels_dic, self.pad_id, self.is_crf2)
+            self.val_dataset = ParquetStreamingDataset(val_path, self.tokenizer, self.labels_dic, self.pad_id, self.is_crf2)
         except:
             print("Validation dataset stream not found. using train temporarily")
             self.val_dataset = self.train_dataset
