@@ -13,28 +13,32 @@ Download the [**SikuRoBERTa**](https://github.com/hsc748NLP/SikuBERT-for-digital
 pip install -r requirements.txt
 ```
 
-### Train
+### Run with SLURM
+
+*Note: The dataset logic is upgraded to use HuggingFace streaming datasets reading `.parquet` files from the `data/` directory.*
+
+The scripts also now allow you to specify the learning label scopes by updating the slurm scripts to pass `--task segmentation` or `--task punctuation` as arguments to `run.py`.
 
 #### Train the Two-CRF sequence labeling model
 ```shell
-sh train.sh
+sbatch train.slurm
 ```
 
 #### Train the single CRF sequence labeling model
 ```shell
-sh train_single.sh
+sbatch train_single.slurm
 ```
 
 ### Predict
 
 #### Predict using the Two-CRF sequence labeling model
 ```shell
-sh predict.sh
+sbatch predict.slurm
 ```
 
 #### Predict using the single CRF sequence labeling model
 ```shell
-sh predict_single.sh
+sbatch predict_single.slurm
 ```
 ### Cite
 ```

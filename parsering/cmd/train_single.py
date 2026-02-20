@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 
 from .cmd_single import CMD
 
-from ..utils.load_single import Load
+from ..utils.load_streaming import Load
 from ..utils.metric import Metric
 
 from torch.optim import Adam
