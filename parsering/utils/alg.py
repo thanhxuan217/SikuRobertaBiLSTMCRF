@@ -1,5 +1,13 @@
 # -*- coding: utf-8 -*-
 
+"""
+alg.py: Chứa các thuật toán toán học/cốt lõi phục vụ tính toán cho mô hình.
+- stripe: Lấy đường chéo tensor, hỗ trợ tăng tốc quy hoạch động trên GPU bằng ma trận.
+- kmeans: Thuật toán phân cụm K-means 1 chiều.
+- crf, score_function, partition_function, neg_log_likelihood: Tính toán Conditional Random Field (CRF) - tính toán loss và xác suất.
+- directed_acyclic_graph: Giải mã Viterbi/đường đi tốt nhất trên DAG (Đồ thị có hướng không chu trình).
+- inside, cky: Các thuật toán quy hoạch động (Inside algorithm, CKY) cho parsing cấu trúc cú pháp.
+"""
 
 import torch
 import torch.autograd as autograd

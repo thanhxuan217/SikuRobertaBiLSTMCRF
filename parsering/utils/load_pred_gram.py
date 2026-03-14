@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+"""
+load_pred_gram.py: Chịu trách nhiệm load và tiền xử lý dữ liệu đầu vào trong quá trình dự đoán (inference) bằng mô hình Two-CRF/Gram.
+"""
 # @Time    : 2024/3/2 11:19
 # @Author  : wxb
 # @File    : load_pred_gram.py

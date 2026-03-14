@@ -1,4 +1,8 @@
 # -*- coding: utf-8 -*-
+"""
+load_single.py: Chịu trách nhiệm tiền xử lý, load và tạo mini-batch dữ liệu huấn luyện cho cấu trúc Single CRF.
+Tương tự như load.py nhưng gom nhóm nhãn của một CRF duy nhất thay vì 2 CRF.
+"""
 # @Time    : 2024/1/17 15:34
 
 import sys

@@ -1,5 +1,12 @@
 # -*- coding: utf-8 -*-
 
+"""
+metric.py: Định nghĩa các class dùng để tính toán các độ đo (metrics) đánh giá chất lượng mô hình dự đoán.
+- Metric: Class cơ sở định nghĩa các tính chất so sánh score.
+- PosMetric: Tính toán Accuracy, Precision, Recall, F1-score tổng hợp cho các task phân loại nhãn (vd: POS Tagging).
+- SegF1Metric: Tính toán Precision, Recall, F1 cho các tập hợp phân đoạn (spans), dùng cho thao tác ghép ngoặc hoặc cắt từ học sâu (deep segmentation).
+"""
+
 import sys
 
 from sklearn.metrics import f1_score, precision_score, recall_score
@@ -40,11 +47,13 @@ class PosMetric(Metric):
         self.pred_ls = []
 
     def __call__(self, preds, golds, lens, word_ids=None):
-        """[summary]
+        """
+        Gộp chuỗi dự đoán (preds) và nhãn đúng (golds) lại để chuẩn bị tính điểm đánh giá F1.
 
         Args:
-            preds (): List[List[int]]
-            golds ([type]): [description]
+            preds: List[List[int]] (Danh sách chuỗi nhãn dự đoán)
+            golds: List[List[int]] (Danh sách chuỗi nhãn đúng ground truth)
+            lens: Độ dài thực của câu (để bỏ qua phần tử padding)
         """
 
         golds = golds.tolist()
@@ -93,16 +102,19 @@ class PosMetric(Metric):
 
     @property
     def f(self):
+        # Tính F1-score có trọng số (weighted F1) dựa trên tất cả các nhãn
         return f1_score(self.gold_ls, self.pred_ls,
                         average='weighted', zero_division=1)
 
     @property
     def macro_f(self):
+        # Tính F1-score bình quân (macro F1 - tất cả các class đều xem trọng như nhau)
         return f1_score(self.gold_ls, self.pred_ls,
                         average='macro', zero_division=1)
 
     @property
     def micro_f(self):
+        # Tính F1-score gộp chung số mẫu (micro F1)
         return f1_score(self.gold_ls, self.pred_ls,
                         average='micro', zero_division=1)
 

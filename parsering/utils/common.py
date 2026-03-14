@@ -1,4 +1,8 @@
 # -*- coding: utf-8 -*-
+"""
+common.py: Khai báo các hằng số, biến cục bộ và các token chung trong dự án.
+Bao gồm các token kiểm soát đặc biệt (bos, eos, pad, unk) và các từ điển map giữa dấu câu tiếng Trung và nhãn Pinyin tiếng Anh.
+"""
 
 pad = '<pad>'
 unk = '<unk>'
