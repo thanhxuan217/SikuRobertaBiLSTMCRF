@@ -1,10 +1,20 @@
 # -*- coding: utf-8 -*-
 
+"""
+Module định nghĩa các kỹ thuật Dropout chuyên biệt như SharedDropout và IndependentDropout.
+Giúp giữ ổn định quá trình học lâu dài của chuỗi tuần tự và giảm thiểu hiện tượng quá khớp (overfitting).
+"""
+
 import torch
 import torch.nn as nn
 
 
 class SharedDropout(nn.Module):
+    """
+    Lớp Variational Dropout (Dropout chia sẻ).
+    Sử dụng cùng 1 mặt nạ dropout (mask) cho tất cả các bước thời gian (time-steps) của dữ liệu chuỗi RNN.
+    Giúp giữ được sự ổn định của chuỗi dài hạn, tránh mất thông tin do rớt nơ-ron không đồng đều.
+    """
 
     def __init__(self, p=0.5, batch_first=True):
         super(SharedDropout, self).__init__()
@@ -38,6 +48,11 @@ class SharedDropout(nn.Module):
 
 
 class IndependentDropout(nn.Module):
+    """
+    Kỹ thuật Independent Dropout.
+    Thay vì áp dụng chung một phân phối mask, hàm này tính toán mask độc lập cho nhiều tensor (items) đầu vào.
+    Áp dụng tỷ lệ scale để giữ cân bằng kỳ vọng của đầu ra.
+    """
 
     def __init__(self, p=0.5):
         super(IndependentDropout, self).__init__()
@@ -48,6 +63,9 @@ class IndependentDropout(nn.Module):
         return f"p={self.p}"
 
     def forward(self, *items):
+        """
+        Các items có thể là các vector đặc trưng đầu vào khác nhau như word embeddings, char embeddings, tag embeddings...
+        """
         if self.training:
             masks = [x.new_empty(x.shape[:2]).bernoulli_(1 - self.p)
                      for x in items]

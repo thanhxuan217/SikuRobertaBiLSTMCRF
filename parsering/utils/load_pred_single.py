@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+"""
+load_pred_single.py: Chịu trách nhiệm load và tiền xử lý dữ liệu đầu vào trong quá trình dự đoán (inference) bằng mô hình Single CRF.
+"""
 # @Time    : 2024/3/2 11:19
 # @Author  : wxb
 

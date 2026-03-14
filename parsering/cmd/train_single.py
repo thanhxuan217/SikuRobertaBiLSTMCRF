@@ -1,11 +1,17 @@
 # -*- coding: utf-8 -*-
 # @Time    : 2024/1/22 17:27
+"""
+File này định nghĩa lớp `Train_single` kế thừa từ `CMD` in `cmd_single.py`. 
+Đảm nhiệm vòng lặp huấn luyện (train loop) qua các epochs dành cho mô hình Single-CRF, 
+bao gồm việc nạp dữ liệu từ loader của một task duy nhất, 
+thiết lập phân cấp learning rate (classification head học nhanh hơn) và cấu hình optimizer.
+"""
 
 from datetime import datetime, timedelta
 
 from .cmd_single import CMD
 
-from ..utils.load_single import Load
+from ..utils.load_streaming import Load
 from ..utils.metric import Metric
 
 from torch.optim import Adam
@@ -14,6 +20,10 @@ from torch.utils.data import DataLoader
 
 
 class Train_single(CMD):
+    """
+    Lớp Trainer dành cho Mô hình Single-CRF
+    (Sử dụng roberta_bilstm_crf thay vì bigram_bert_model).
+    """
 
     def add_subparser(self, name, parser):
         subparser = parser.add_parser(
@@ -26,8 +36,9 @@ class Train_single(CMD):
     def __call__(self, args):
         super(Train_single, self).__call__(args)
         print('Preprocess the data')
-        loader = Load(args)
+        loader = Load(args) # Gọi đối tượng tiền xử lý file từ "utils/load_single.py"
         
+        # Collate (gom batch) version single model
         collate_fn = loader.collate_fn_crf_last
         
         print(f"{args}")
@@ -44,17 +55,22 @@ class Train_single(CMD):
         self.model = self.model_cl(args).to(args.device)
         print(f"{self.model}")
 
+        # Setup Learning Rate
         lr = args.bert_lr
         decay = args.bert_decay
 
+        # Chia thành 2 nhóm thông số: 1 là của cốt lõi BERT/LSTM, 2 là mô-đun MLP/CRF phía trên cùng
         bert_lstm_params = [param for name, param in self.model.named_parameters()
                             if 'crf' not in name and 'mlp' not in name]
+                            
+        # Đầu não phân loại (Classification Head) được cấp quyền học nhanh gấp 10 lần (`times=10`)
         times, weight_decay = 10, 0.01
         crf_params = [
             {'params': self.model.crf.parameters(), 'lr': lr * times, 'weight_decay': weight_decay},
             {'params': self.model.mlp.parameters(), 'lr': lr * times, 'weight_decay': weight_decay},
         ]
 
+        # Optimizer dùng Adam
         self.optimizer = Adam([{'params': bert_lstm_params}] + crf_params,
                               lr,
                               (args.mu, args.nu),

@@ -1,10 +1,21 @@
 # -*- coding: utf-8 -*-
 
+"""
+Module định nghĩa các tầng Biaffine (Bilinear Affine Attention) và Element-wise Biaffine.
+Dùng để tính toán ma trận điểm số tương tác trực tiếp giữa hai tập vector biểu diễn,
+thường được sử dụng trong các bài toán Dependency Parsing và Attention.
+"""
+
 import torch
 import torch.nn as nn
 
 
 class Biaffine(nn.Module):
+    """
+    Lớp Biaffine (Bilinear Affine Attention).
+    Sử dụng ma trận trọng số 3 chiều (weight tensor) tương tác trực tiếp 2 vector x và y.
+    Công thức toán học: s = x^T U y + W(x \oplus y) + b (Áp dụng trong Dependency Parsing). 
+    """
 
     def __init__(self, n_in, n_out=1, bias_x=True, bias_y=True):
         super(Biaffine, self).__init__()
@@ -43,6 +54,10 @@ class Biaffine(nn.Module):
         return s
 
 class ElementWiseBiaffine(nn.Module):
+    """
+    Biến thể Element-wise Biaffine.
+    Chỉ thực hiện phép nhân độc lập giữa từng phần tử x_i và y_i của chuỗi thay vì tính tương quan chéo (cross-correlation).
+    """
 
     def __init__(self, n_in, n_out=1, bias_x=True, bias_y=True):
         super(ElementWiseBiaffine, self).__init__()
