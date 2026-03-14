@@ -2,6 +2,11 @@
 # @Time    : 2024/2/27 20:07
 # @Author  : wxb
 # @File    : cmd_bigram.py
+"""
+File này chứa lớp `CMD` cơ sở cấu hình cho kiến trúc mô hình Single-CRF (RoBERTa BiLSTM CRF) 
+chỉ phục vụ một luồng tác vụ gộp duy nhất. 
+Cung cấp các luồng chức năng tiêu chuẩn: `train()`, đo lường chỉ số qua `evaluate()` và chạy dự đoán với `predict()`.
+"""
 
 import os
 import sys
@@ -17,14 +22,20 @@ import torch.nn as nn
 
 
 class CMD(object):
+    """
+    Lớp CMD dành riêng cho Single-Task CRF.
+    (Khác với cmd_gram.py giải quyết phân mảng & ngắt câu tách biệt bằng 2 luồng CRF, file này thiết lập mô hình BasePlusModel chỉ có 1 CRF duy nhất).
+    """
 
     def __call__(self, args) -> Any:
         self.args = args
+        # Tạo file/thư mục lưu cấu hình nếu chưa có
         if not os.path.exists(args.file):
             os.mkdir(args.file)
 
         self.model_check = args.base_model
-
+        
+        # Chỉ định chạy mô hình roberta_bilstm_crf (1 nhánh MLP và CRF)
         self.model_cl = roberta_bilstm_crf
 
         args.update({
@@ -36,9 +47,13 @@ class CMD(object):
         self.softmax = nn.Softmax(dim=-1)
 
     def train(self, loader):
+        """
+        Huấn luyện mô hình một epoch (luồng Single Task).
+        """
         self.model.train()
         torch.set_grad_enabled(True)
         for data in loader:
+            # Nhận data chỉ có chung 1 loại 'tags' duy nhất (thay vì stop_tags và non_stop_tags như gram model)
             ((chars, bi_chars, bert_input, attention_mask, mask), tags) = data
             self.optimizer.zero_grad()
 
@@ -46,8 +61,11 @@ class CMD(object):
                          'bert': [bert_input, attention_mask],
                          'crf_mask': mask}
 
+            # Forward mô hình, do chỉ có 1 task nên biến trả về duy nhất một dictionary chứa tổng Loss
             ret = self.model(feed_dict, tags)
             loss = ret['loss']
+            
+            # Backpropagation
             loss.backward()
             nn.utils.clip_grad_norm_(self.model.parameters(),
                                      self.args.clip)
@@ -57,6 +75,10 @@ class CMD(object):
 
     @torch.no_grad()
     def evaluate(self, loader):
+        """
+        Hàm đánh giá mô hình Single Task.
+        Ở đây dùng duy nhất PosMetric (Đo Precision/Recall/F1 cho nhãn gộp chung phân mảng & ngắt câu).
+        """
         print('evaluate...')
         self.model.eval()
         total_loss, metric_pos = 0, PosMetric()
@@ -69,14 +91,15 @@ class CMD(object):
             feed_dict = {'chars': chars,
                          'bert': [bert_input, attention_mask],
                          'crf_mask': mask}
-            # do_predict=True
+                         
+            # Bật do_predict=True để giải mã thuật toán viterbi lấy nhãn dự đoán (predict vector)
             ret = self.model(feed_dict, tags, do_predict=True)
             loss = ret['loss']
 
             total_loss += loss.item()
 
             pred = ret['predict']
-            # 评估指标计算
+            # Đánh giá chỉ số chung cho toàn bộ loại nhãn
             metric_pos(pred, tags, mask.sum(dim=-1))
 
             total_num += mask.sum()

@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 
+"""
+Module định nghĩa tầng BertEmbedding.
+Sử dụng thư viện transformers để tải và trích xuất đặc trưng (embedding) ngữ cảnh
+từ các mô hình ngôn ngữ dựa trên kiến trúc BERT/RoBERTa.
+"""
+
 import torch
 import torch.nn as nn
 from transformers import AutoModel, AutoConfig, logging
@@ -7,6 +13,11 @@ logging.set_verbosity_error()  # 忽略 bert 警告
 
 
 class BertEmbedding(nn.Module):
+    """
+    Lớp nhúng (embedding) từ mô hình ngôn ngữ cài sẵn họ BERT/RoBERTa.
+    Sử dụng thư viện transformers để tải và xử lý tự động (AutoModel).
+    Lớp này dùng để trích xuất đặc trưng (embedding) ngữ cảnh của các subwords.
+    """
 
     def __init__(self, model, n_layers, n_out, requires_grad=False):
         super(BertEmbedding, self).__init__()
@@ -44,6 +55,9 @@ class BertEmbedding(nn.Module):
     #     return embed
 
     def forward(self, subwords, bert_mask):
+        """
+        Lan truyền tiến (Forward). Đưa mask và subwords (mã token) vào BERT để lấy vector nhúng ngữ cảnh.
+        """
         if not self.requires_grad:
             self.bert.eval()
         embed = self.bert(subwords, attention_mask=bert_mask).last_hidden_state

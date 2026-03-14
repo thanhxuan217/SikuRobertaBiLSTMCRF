@@ -15,66 +15,82 @@ class roberta_bilstm_crf(nn.Module):
 
         self.args = args
         self.pretrained = False
-        # the embedding layer
+        
+        # 1. Tầng Embedding (Nhúng kí tự / Character Embedding)
         self.char_embed = nn.Embedding(num_embeddings=args.n_chars,
                                        embedding_dim=args.n_embed)
-        n_lstm_input = args.n_embed  # 100
+        n_lstm_input = args.n_embed  # Tổng số chiều input cho LSTM
 
+        # 2. Tầng BERT Embedding (Lấy đặc trưng phong phú từ Roberta/BERT model)
         self.feat_embed = BertEmbedding(model=args.base_model,
                                         n_layers=args.n_bert_layers,
                                         n_out=args.n_feat_embed)
         n_lstm_input += args.n_feat_embed
 
+        # Lớp Dropout cho Embedding (để chống overfitting)
         self.embed_dropout = IndependentDropout(p=args.embed_dropout)
 
-        # the lstm layer
+        # 3. Tầng BiLSTM (Học theo chuỗi với ngữ cảnh chiều trái - phải và phải - trái)
         self.lstm = BiLSTM(input_size=n_lstm_input,
                            hidden_size=args.n_lstm_hidden,
                            num_layers=args.n_lstm_layers,
                            dropout=args.lstm_dropout)
         self.lstm_dropout = SharedDropout(p=args.lstm_dropout)
 
-        # the MLP layers
+        # 4. Neural Network Head: MLP và CRF (Chỉ có một nhánh cho single-task)
+        # Sử dụng cho bài toán phân mảng câu hoặc nhận dạng thực thể
         self.mlp = MLP(n_in=args.n_lstm_hidden*2,
                        n_out=args.n_labels)
 
+        # Lớp phân loại chuỗi CRF (Conditional Random Field)
         self.crf = CRF(n_labels=args.n_labels)
 
         self.pad_index = args.pad_index
         self.unk_index = args.unk_index
 
     def forward(self, feed_dict, target=None, do_predict=False):
+        """
+        Quá trình lan truyền tiến (Forward Pass) với một nhánh CRF duy nhất.
+        """
         chars = feed_dict["chars"]
         char_embed = self.char_embed(chars)
 
         batch_size, seq_len = feed_dict['bert'][0].shape
 
         # get outputs from embedding layers
-        # char_embed = self.char_embed(ext_chars)
+        # Lấy mask và tính độ dài thực của từng câu để phục vụ pack_padded_sequence
         mask = feed_dict['bert'][1]
         lens = mask.sum(dim=1).cpu()
 
-        # feats = feed_dict
+        # Lấy đặc trưng từ pretrained module (BERT/Roberta)
         feat_embed = self.feat_embed(*feed_dict['bert'])
 
+        # Gộp embedding kí tự và embedding từ BERT
         char_embed, feat_embed = self.embed_dropout(char_embed, feat_embed)
         feat_embed = torch.cat((char_embed, feat_embed), dim=-1)
-        # embed: (B, L, D)
+        # embed: (Batch Size, Length, Dimension)
 
+        # Cho qua lớp đóng gói padding và LSTM
         x = pack_padded_sequence(feat_embed, lens, True, False)
         x, _ = self.lstm(x)
         x, _ = pad_packed_sequence(x, True, total_length=seq_len)
         x = self.lstm_dropout(x)
 
+        # Đưa qua MLP (Multi-Layer Perceptron)
         x = self.mlp(x)
+        
+        # Xử lý mask CRF (loại bỏ vị trí đầu CLS và cuối SEP)
         mask = feed_dict['crf_mask']
         mask = mask[:, 1: -1]
         x = x[:, 1: -1]
 
         ret = {}
+        # Pha Huấn Luyện (Training/Validation): Tính độ lỗi (loss)
         if target is not None:
             loss = self.crf(x, target, mask)
             ret['loss'] = loss
+            
+        # Pha Dự Đoán (Inference/Testing): Dùng thuật toán Viterbi để xuất nhãn tối ưu
         if do_predict:
             predict_labels = self.crf.viterbi(x, mask)
             ret['predict'] = predict_labels

@@ -1,10 +1,21 @@
 # -*- coding: utf-8 -*-
 
+"""
+Module định nghĩa kỹ thuật Scalar Mix.
+Cho phép mô hình học các trọng số động để tính tổng hợp kết hợp (weighted sum) từ các lớp ẩn (hidden layers) khác nhau,
+giúp mô hình linh hoạt phản ánh và chọn lọc những đặc trưng hữu ích nhất ở từng tầng.
+"""
+
 import torch
 import torch.nn as nn
 
 
 class ScalarMix(nn.Module):
+    """
+    Kỹ thuật Scalar Mix (thường dùng trong ELMo).
+    Tính tổng có trọng số của các lớp ẩn (hidden layers) được trả về từ mạng.
+    Giúp mô hình có khả năng học cách tự chọn lọc đặc trưng ở các tầng cụm/tầng cao và tầng thấp tùy bài toán.
+    """
 
     def __init__(self, n_layers, dropout=0):
         super(ScalarMix, self).__init__()

@@ -1,5 +1,13 @@
 # -*- coding: utf-8 -*-
 
+"""
+fn.py: Chứa các hàm tiện ích chức năng xử lý chuỗi ký tự, nhãn, và cây NLTK.
+- ispunct, isfullwidth, islatin, isdigit, tohalfwidth: Kiểm tra và chuẩn hóa đặc trưng của Unicode ký tự.
+- isprojective, binarize, decompose, factorize, build: Các phép biến đổi và xử lý đồ thị/cây cú pháp phục vụ parsing.
+- tag2seg, seg2tag: Chuyển đổi qua lại giữa chuỗi nhãn (BMES) và danh sách các phân đoạn từ/câu.
+- pad: Thêm padding cho các danh sách tensor độ dài khác nhau.
+"""
+
 import unicodedata
 
 from nltk.tree import Tree

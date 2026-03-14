@@ -1,0 +1,236 @@
+# 📖 Source Code Walkthrough: SikuRobertaBiLSTMCRF
+
+## Tổng Quan Dự Án
+
+Đây là hệ thống **Sequence Labeling** cho bài toán **ngắt câu và chèn dấu câu** (Sentence Segmentation & Punctuation Prediction) trên văn bản **Hán cổ** (Classical Chinese), được trình bày trong bài báo [Two Sequence Labeling Approaches...](https://aclanthology.org/2024.lt4hala-1.28) tại LT4HALA-WS 2024.
+
+**Kiến trúc chính:** `SikuRoBERTa` → [BiLSTM](file:///d:/WorkSpace/SikuRobertaBiLSTMCRF/parsering/modules/bilstm.py#17-159) → [MLP](file:///d:/WorkSpace/SikuRobertaBiLSTMCRF/parsering/modules/mlp.py#14-55) → [CRF](file:///d:/WorkSpace/SikuRobertaBiLSTMCRF/parsering/modules/crf.py#13-138)
+
+---
+
+## Thứ Tự Đọc Code Khuyến Nghị
+
+Bạn nên đọc theo thứ tự dưới đây để hiểu từ tổng thể đến chi tiết:
+
+```mermaid
+graph TD
+    A["1. run.py<br/>(Entry Point)"] --> B["2. config.py + config.ini<br/>(Cấu hình)"]
+    B --> C["3. common.py<br/>(Hằng số & Nhãn)"]
+    C --> D["4. Mô hình Neural"]
+    D --> D1["4a. BasePlusModel.py<br/>(Single CRF)"]
+    D --> D2["4b. gram_crf_model.py<br/>(Two CRF)"]
+    D1 --> E["5. Modules"]
+    D2 --> E
+    E --> E1["bert.py"]
+    E --> E2["bilstm.py"]
+    E --> E3["mlp.py"]
+    E --> E4["crf.py"]
+    E --> E5["dropout.py"]
+    E --> F["6. Data Pipeline"]
+    F --> F1["load.py / load_single.py"]
+    F1 --> G["7. Train/Eval Loop"]
+    G --> G1["cmd_gram.py → train_gram.py"]
+    G --> G2["cmd_single.py → train_single.py"]
+    G1 --> H["8. metric.py<br/>(Đánh giá)"]
+    G2 --> H
+```
+
+---
+
+## 1. Entry Point: [run.py](file:///d:/WorkSpace/SikuRobertaBiLSTMCRF/run.py)
+
+File khởi chạy chính. Hỗ trợ **4 chế độ** qua command line:
+
+| Chế độ | Mô tả |
+|---|---|
+| [train](file:///d:/WorkSpace/SikuRobertaBiLSTMCRF/parsering/cmd/cmd_gram.py#43-77) | Huấn luyện mô hình **Two-CRF** (hai nhánh CRF song song) |
+| `train_single` | Huấn luyện mô hình **Single-CRF** (một nhánh CRF duy nhất) |
+| [predict](file:///d:/WorkSpace/SikuRobertaBiLSTMCRF/parsering/cmd/cmd_single.py#111-133) | Dự đoán bằng mô hình Two-CRF |
+| `predict_single` | Dự đoán bằng mô hình Single-CRF |
+
+**Luồng thực thi:**
+1. Parse arguments (device, seed, batch_size, feat...)
+2. Set random seed → đặt `CUDA_VISIBLE_DEVICES`
+3. Đọc [config.ini](file:///d:/WorkSpace/SikuRobertaBiLSTMCRF/config.ini) → merge với args
+4. Gọi `cmd(args)` để chạy train/predict tương ứng
+
+---
+
+## 2. Cấu Hình: [config.py](file:///d:/WorkSpace/SikuRobertaBiLSTMCRF/parsering/config.py) + [config.ini](file:///d:/WorkSpace/SikuRobertaBiLSTMCRF/config.ini)
+
+[Config](file:///d:/WorkSpace/SikuRobertaBiLSTMCRF/parsering/config.py#8-94) kế thừa `ConfigParser`, đọc file [.ini](file:///d:/WorkSpace/SikuRobertaBiLSTMCRF/config.ini) và tự động chuyển kiểu dữ liệu bằng `literal_eval()`. Truy cập tham số dạng thuộc tính: `args.batch_size`, `args.n_lstm_hidden`...
+
+**Các hyperparameters quan trọng:**
+
+| Nhóm | Tham số | Giá trị |
+|---|---|---|
+| Network | `n_lstm_hidden` | 400 |
+| Network | `n_lstm_layers` | 3 |
+| Network | `n_bert_layers` | 4 |
+| Optimizer | `bert_lr` | 2e-5 |
+| Run | `epochs` | 200 |
+| Run | `patience` (early stop) | 10 |
+
+---
+
+## 3. Hằng Số & Nhãn: [common.py](file:///d:/WorkSpace/SikuRobertaBiLSTMCRF/parsering/utils/common.py)
+
+Định nghĩa mapping **dấu câu Hán cổ → nhãn tiếng Anh**:
+
+| Dấu câu | Nhãn | Ý nghĩa |
+|---|---|---|
+| `，` | `D` | Dấu phẩy |
+| `。` | `J` | Dấu chấm |
+| `？` | `W` | Dấu hỏi |
+| `！` | `G` | Dấu chấm than |
+| `；` | `F` | Dấu chấm phẩy |
+| `"` `"` | `Q_SY` `H_SY` | Ngoặc kép mở/đóng |
+| `《` `》` | `Q_S` `H_S` | Ngoặc sách mở/đóng |
+| Không dấu | `O` | Non-punctuation |
+
+---
+
+## 4. Hai Kiến Trúc Mô Hình
+
+Dự án có **2 phương pháp tiếp cận** cho cùng bài toán:
+
+### 4a. Single-CRF: [BasePlusModel.py](file:///d:/WorkSpace/SikuRobertaBiLSTMCRF/parsering/BasePlusModel.py)
+
+Class [roberta_bilstm_crf](file:///d:/WorkSpace/SikuRobertaBiLSTMCRF/parsering/BasePlusModel.py#12-127) — gộp cả ngắt câu + chèn dấu câu vào **1 tập nhãn duy nhất**.
+
+```
+Input → CharEmbed + BertEmbed → BiLSTM → MLP → CRF → Labels
+```
+
+**Pipeline forward:**
+1. **Char Embedding**: `nn.Embedding` cho từng kí tự
+2. **BERT Embedding**: `SikuRoBERTa` trích xuất đặc trưng ngữ cảnh
+3. **Concat & Dropout**: gộp char + BERT embeddings
+4. **BiLSTM**: 3 lớp, hidden_size=400, Variational Dropout
+5. **MLP**: Linear → LeakyReLU → Dropout → logits
+6. **CRF**: Tính NLL loss (train) hoặc Viterbi decode (infer)
+
+### 4b. Two-CRF: [gram_crf_model.py](file:///d:/WorkSpace/SikuRobertaBiLSTMCRF/parsering/gram_crf_model.py)
+
+Class [bigram_bert_model](file:///d:/WorkSpace/SikuRobertaBiLSTMCRF/parsering/gram_crf_model.py#13-198) — tách thành **2 nhánh song song**:
+
+```
+                          ┌─ MLP₁ → CRF₁ → Segmentation labels (ngắt câu)
+Input → CharEmbed + BERT → BiLSTM ─┤
+                          └─ MLP₂ → CRF₂ → Punctuation labels (chèn dấu câu)
+```
+
+> [!IMPORTANT]
+> Đây là điểm khác biệt cốt lõi: Two-CRF xử lý **riêng biệt** tác vụ phân mảng (segmentation) và gán dấu câu (punctuation), cho phép mỗi CRF học transition pattern độc lập.
+
+---
+
+## 5. Neural Modules (`parsering/modules/`)
+
+### [bert.py](file:///d:/WorkSpace/SikuRobertaBiLSTMCRF/parsering/modules/bert.py) — BERT Embedding
+- Dùng `AutoModel` từ HuggingFace Transformers để load SikuRoBERTa
+- Nếu `hidden_size ≠ n_out` → thêm `nn.Linear` projection
+- Trả về `last_hidden_state` (vector ngữ cảnh)
+
+### [bilstm.py](file:///d:/WorkSpace/SikuRobertaBiLSTMCRF/parsering/modules/bilstm.py) — Custom BiLSTM
+- Tự xây dựng bằng `LSTMCell` (không dùng `nn.LSTM` mặc định)
+- Hỗ trợ **Variational Dropout** (cùng một mask cho mọi time-step)
+- Forward: chạy `layer_forward()` cho cả 2 chiều rồi `torch.cat`
+
+### [crf.py](file:///d:/WorkSpace/SikuRobertaBiLSTMCRF/parsering/modules/crf.py) — CRF Layer
+- **Training**: `forward()` → tính `NLL loss = logZ - score(true_path)`
+  - `get_logZ()`: Forward Algorithm (Dynamic Programming)
+  - `get_score()`: Emission + Transition scores của chuỗi đúng
+- **Inference**: `viterbi()` → giải mã chuỗi nhãn tối ưu bằng backtracking
+
+### [mlp.py](file:///d:/WorkSpace/SikuRobertaBiLSTMCRF/parsering/modules/mlp.py) — MLP Head
+`Linear → LeakyReLU(0.1) → SharedDropout`
+
+### [dropout.py](file:///d:/WorkSpace/SikuRobertaBiLSTMCRF/parsering/modules/dropout.py) — Specialized Dropout
+- **SharedDropout**: Cùng một mask cho mọi time-step (Variational Dropout)
+- **IndependentDropout**: Mask riêng cho mỗi embedding (char vs BERT)
+
+---
+
+## 6. Data Pipeline (`parsering/utils/`)
+
+### [load.py](file:///d:/WorkSpace/SikuRobertaBiLSTMCRF/parsering/utils/load.py) — Two-CRF Data Loader
+
+| Hàm quan trọng | Chức năng |
+|---|---|
+| `__init__` | Đọc JSON data, xây dựng vocab, tokenize |
+| `double_tag()` | Gán **2 bộ nhãn** cho mỗi kí tự (segmentation + punctuation) |
+| `signal_tag()` | Gán **1 bộ nhãn gộp** cho mỗi kí tự |
+| `sliding_window()` | Chia văn bản dài thành các cửa sổ ≤ 510 token |
+| `collate_fn_bigram()` | Gom batch + padding cho mô hình Two-CRF |
+| `punc_to_ids()` | Map nhãn dấu câu → index số |
+
+### [load_single.py](file:///d:/WorkSpace/SikuRobertaBiLSTMCRF/parsering/utils/load_single.py) — Single-CRF Data Loader
+Tương tự `load.py` nhưng chỉ tạo **1 bộ nhãn gộp** thay vì 2.
+
+---
+
+## 7. Train/Eval Loop (`parsering/cmd/`)
+
+Có 2 cặp CMD-Train cho 2 kiến trúc:
+
+### Two-CRF Pipeline
+- [cmd_gram.py](file:///d:/WorkSpace/SikuRobertaBiLSTMCRF/parsering/cmd/cmd_gram.py): Lớp cơ sở, định nghĩa `train()`, `evaluate()`, `predict()`
+- [train_gram.py](file:///d:/WorkSpace/SikuRobertaBiLSTMCRF/parsering/cmd/train_gram.py): Vòng lặp epoch, optimizer setup, early stopping
+
+### Single-CRF Pipeline
+- [cmd_single.py](file:///d:/WorkSpace/SikuRobertaBiLSTMCRF/parsering/cmd/cmd_single.py): Lớp cơ sở tương tự nhưng cho 1 task
+- [train_single.py](file:///d:/WorkSpace/SikuRobertaBiLSTMCRF/parsering/cmd/train_single.py): Vòng lặp epoch cho single-CRF
+
+**Chiến lược Learning Rate:**
+- BERT + BiLSTM: `lr = 2e-5`
+- MLP + CRF: `lr = 2e-5 × 10` (học nhanh gấp **10 lần** phần classification head)
+- Scheduler: `ExponentialLR` giảm dần theo step
+
+**Early Stopping:** Dừng nếu `metric_stop` (F1) không cải thiện sau `patience=10` epochs.
+
+---
+
+## 8. Metrics: [metric.py](file:///d:/WorkSpace/SikuRobertaBiLSTMCRF/parsering/utils/metric.py)
+
+| Class | Dùng cho | Chỉ số |
+|---|---|---|
+| `Metric` | Base class | `score` (abstract) |
+| `PosMetric` | Gán nhãn từng token | Accuracy, weighted-P/R/F1 |
+| `SegF1Metric` | Đánh giá span/đoạn | P/R/F1 trên tập spans |
+
+---
+
+## Cấu Trúc Thư Mục Tổng Hợp
+
+```
+SikuRobertaBiLSTMCRF/
+├── run.py                    ← 🚀 Entry point
+├── config.ini                ← ⚙️ Hyperparameters
+├── train.sh / predict.sh     ← Shell scripts (Two-CRF)
+├── train_single.sh           ← Shell scripts (Single-CRF)
+├── dataset/                  ← 📁 train.json, dev.json  
+├── SIKU-BERT/                ← 🤖 Pretrained model (download)
+└── parsering/
+    ├── BasePlusModel.py      ← 🧠 Single-CRF model
+    ├── gram_crf_model.py     ← 🧠 Two-CRF model  
+    ├── config.py             ← Config parser
+    ├── modules/
+    │   ├── bert.py           ← BERT embedding layer
+    │   ├── bilstm.py         ← Custom BiLSTM  
+    │   ├── crf.py            ← CRF (NLL + Viterbi)
+    │   ├── mlp.py            ← MLP classification head
+    │   └── dropout.py        ← SharedDropout, IndependentDropout
+    ├── cmd/
+    │   ├── cmd_gram.py       ← Base CMD cho Two-CRF
+    │   ├── cmd_single.py     ← Base CMD cho Single-CRF
+    │   ├── train_gram.py     ← Training loop Two-CRF
+    │   ├── train_single.py   ← Training loop Single-CRF
+    │   ├── predict_gram.py   ← Prediction Two-CRF
+    │   └── predict_single.py ← Prediction Single-CRF
+    └── utils/
+        ├── common.py         ← Punctuation mappings
+        ├── load.py           ← Data loader Two-CRF
+        ├── load_single.py    ← Data loader Single-CRF
+        └── metric.py         ← P/R/F1 metrics
+```
