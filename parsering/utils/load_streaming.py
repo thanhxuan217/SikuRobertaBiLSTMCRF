@@ -1,5 +1,6 @@
 import torch
 import os
+import glob
 from datasets import load_dataset
 from transformers import AutoTokenizer
 from ..utils.common import pad, bos, eos
@@ -7,9 +8,16 @@ from parsering.task_config import get_task_config
 
 
 class ParquetStreamingDataset(torch.utils.data.IterableDataset):
-    def __init__(self, data_path, tokenizer, labels_dic, pad_id, is_crf2=False):
-        # Explicit data_files mapping matching exactly any parquet files in the targeted data directory
-        self.dataset = load_dataset('parquet', data_files=f"{data_path}/*.parquet", split='train', streaming=True)
+    """
+    IterableDataset doc du lieu .parquet theo kieu streaming,
+    tranh load het vao RAM.
+    Ho tro 2 kieu truyen data_files:
+      - Duong dan thu muc chua nhieu file .parquet
+      - Danh sach cu the cac file .parquet
+    """
+    def __init__(self, data_files, tokenizer, labels_dic, pad_id, is_crf2=False):
+        # data_files co the la glob pattern (str) hoac list cac file paths
+        self.dataset = load_dataset('parquet', data_files=data_files, split='train', streaming=True)
         self.tokenizer = tokenizer
         self.labels_dic = labels_dic
         self.pad_id = pad_id
@@ -31,9 +39,6 @@ class ParquetStreamingDataset(torch.utils.data.IterableDataset):
             bert_input = torch.tensor(bert_input)
             length = len(bert_input)
             
-            # For character BERT, we just use the tokenizer vocab directly 
-            # (In the original script, chars2ids mapped characters to a custom vocab)
-            # The custom vocab had ~20k chars. Now we use tokenizer's vocab.
             try:
                 words_index = self.tokenizer.convert_tokens_to_ids([self.bos] + text[:length - 2] + [self.eos])
             except:
@@ -42,15 +47,11 @@ class ParquetStreamingDataset(torch.utils.data.IterableDataset):
                     words_index.append(self.tokenizer.vocab.get(c, self.tokenizer.unk_token_id))
             words_index = torch.tensor(words_index, dtype=torch.long)
             
-            # Dummy bi_chars (we disable bigram embeddings since they were commented out in the original model)
             bi_words_index = torch.zeros(length, dtype=torch.long)
             
             attention_mask = torch.ones(length).gt(0)
             mask = torch.tensor([0] + [1] * (length - 2) + [0])
             
-            # Tags to IDs padding properly
-            # if punctuation task, there may be multiple tags for some characters if it's double tag? 
-            # The user dataset provides matching shapes for text and labels arrays.
             mapped_tags = [self.labels_dic.get(e, self.pad_id) for e in labels[:length-2]]
             tags = torch.tensor(mapped_tags, dtype=torch.long)
             
@@ -60,7 +61,20 @@ class ParquetStreamingDataset(torch.utils.data.IterableDataset):
                 yield (words_index, bi_words_index, bert_input, attention_mask, mask, tags)
 
 
+def _find_parquet_files(directory):
+    """Tim tat ca file .parquet trong thu muc (khong de quy)."""
+    pattern = os.path.join(directory, "*.parquet")
+    return sorted(glob.glob(pattern))
+
+
 class Load:
+    """
+    Loader streaming cho parquet dataset.
+    Ho tro 3 kich ban:
+      1. args.data la thu muc co sub-dir train/ va val/ -> doc rieng
+      2. args.data la thu muc chi co train/ (khong co val/) -> tu dong split
+      3. args.data la thu muc chua truc tiep cac file .parquet -> tu dong split 95/5
+    """
     def __init__(self, args):
         self.args = args
 
@@ -84,31 +98,56 @@ class Load:
             'bos_index': self.tokenizer.bos_token_id,
             'eos_index': self.tokenizer.eos_token_id,
             "n_labels": len(self.labels_dic) + 1,
-            "n_chars": self.tokenizer.vocab_size + 3,  # safety margin
+            "n_chars": self.tokenizer.vocab_size + 3,
             "n_bigrams": 3,
             "n_stop_labels": 1,
         })
         
-        # Determine if we're yielding a 2-tag element (for gram models)
         self.is_crf2 = ('gram' in args.mode)
         
+        # --- Tim va gan parquet files cho train/val ---
         train_path = os.path.join(args.data, "train")
         val_path = os.path.join(args.data, "val")
         
-        self.train_dataset = ParquetStreamingDataset(train_path, self.tokenizer, self.labels_dic, self.pad_id, self.is_crf2)
-        try:
-            self.val_dataset = ParquetStreamingDataset(val_path, self.tokenizer, self.labels_dic, self.pad_id, self.is_crf2)
-        except:
-            print("Validation dataset stream not found. using train temporarily")
-            self.val_dataset = self.train_dataset
-            
-        self.train = self.train_dataset
-        self.validation = self.val_dataset
+        train_files = _find_parquet_files(train_path) if os.path.isdir(train_path) else []
+        val_files = _find_parquet_files(val_path) if os.path.isdir(val_path) else []
+        
+        # Kich ban 3: khong co train/ subdir -> tim .parquet truc tiep trong args.data
+        if not train_files:
+            root_files = _find_parquet_files(args.data)
+            if root_files:
+                print(f"[Load] Tim thay {len(root_files)} parquet files truc tiep trong {args.data}")
+                # Tu dong split 95/5
+                split_idx = max(1, int(len(root_files) * 0.95))
+                train_files = root_files[:split_idx]
+                val_files = root_files[split_idx:] if split_idx < len(root_files) else root_files[-1:]
+                print(f"[Load] Auto-split: {len(train_files)} train files, {len(val_files)} val files")
+        
+        # Kich ban 2: co train/ nhung khong co val/
+        if train_files and not val_files:
+            print("[Load] No val/ directory found. Using last train file as validation.")
+            val_files = train_files[-1:]       
+        
+        if not train_files:
+            raise FileNotFoundError(
+                f"Khong tim thay file .parquet nao trong {args.data}. "
+                f"Hay dat cac file .parquet vao {args.data}/ hoac {train_path}/."
+            )
+        
+        print(f"[Load] Train files: {train_files}")
+        print(f"[Load] Val files:   {val_files}")
+
+        self.train = ParquetStreamingDataset(
+            train_files, self.tokenizer, self.labels_dic, self.pad_id, self.is_crf2
+        )
+        self.validation = ParquetStreamingDataset(
+            val_files, self.tokenizer, self.labels_dic, self.pad_id, self.is_crf2
+        )
 
     @staticmethod
     def pad(tensors, padding_value=0):
         size = [len(tensors)] + [max(tensor.size(i) for tensor in tensors)
-                                 for i in range(len(tensors[0].size()))]
+                                  for i in range(len(tensors[0].size()))]
         out_tensor = tensors[0].data.new(*size).fill_(padding_value)
         for i, tensor in enumerate(tensors):
             out_tensor[i][[slice(0, i) for i in tensor.size()]] = tensor
