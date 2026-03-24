@@ -14,7 +14,7 @@ class Biaffine(nn.Module):
     """
     Lớp Biaffine (Bilinear Affine Attention).
     Sử dụng ma trận trọng số 3 chiều (weight tensor) tương tác trực tiếp 2 vector x và y.
-    Công thức toán học: s = x^T U y + W(x \oplus y) + b (Áp dụng trong Dependency Parsing). 
+    Công thức toán học: s = x^T U y + W(x \\oplus y) + b (Áp dụng trong Dependency Parsing). 
     """
 
     def __init__(self, n_in, n_out=1, bias_x=True, bias_y=True):

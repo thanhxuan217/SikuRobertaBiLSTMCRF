@@ -61,6 +61,8 @@ if __name__ == '__main__':
         subparser.add_argument('--task', default='segmentation',
                                choices=['segmentation', 'punctuation'],
                                help='the task type to run')
+        subparser.add_argument('--base_model', default=None,
+                               help='overrides base_model in config.ini (e.g., local path or HF repo ID)')
 
     args = parser.parse_args()
     print(f'NOTE: {args.feat} 模型')
@@ -76,11 +78,22 @@ if __name__ == '__main__':
     args.save_model = os.path.join(args.file, 'model.pth')
     args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-    args = Config(args.conf).update(vars(args))
+    cmd_args = vars(args)
+    if cmd_args.get('base_model') is None:
+        cmd_args.pop('base_model', None)
+
+    args = Config(args.conf).update(cmd_args)
     
-    # Resolve base_model path relative to the script directory if it's a relative path
-    if hasattr(args, 'base_model') and args.base_model and not os.path.isabs(args.base_model):
-        args.base_model = os.path.join(os.path.dirname(os.path.abspath(__file__)), args.base_model)
+    # Resolve base_model path relative to the script directory if it's a relative path and exists locally
+    if hasattr(args, 'base_model') and args.base_model:
+        if not os.path.isabs(args.base_model):
+            local_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), args.base_model)
+            if os.path.exists(local_path):
+                args.base_model = local_path
+        
+        # Add clear error if it was meant to be local but is missing
+        if os.path.isabs(args.base_model) and not os.path.exists(args.base_model):
+            print(f"Warning: The specified base_model local path '{args.base_model}' does not exist.")
         
     print(f"Run the subcommand in mode {args.mode}")
     cmd = subcommands[args.mode]
