@@ -78,6 +78,11 @@ class Load:
     def __init__(self, args):
         self.args = args
 
+        if os.path.isabs(args.model_check) and not os.path.exists(args.model_check):
+            raise FileNotFoundError(
+                f"Model directory '{args.model_check}' does not exist! "
+                f"Please ensure it exists or specify the correct path using `--base_model` argument."
+            )
         self.tokenizer = AutoTokenizer.from_pretrained(args.model_check)
         self.tokenizer.pad_token = pad
         self.tokenizer.bos_token = bos
