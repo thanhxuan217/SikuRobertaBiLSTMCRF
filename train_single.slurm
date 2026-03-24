@@ -17,6 +17,7 @@ data="/data"
 feat="SIKU-BERT"
 method="blstm.crf"
 batchsize=50
+mkdir -p log/train exp
 
 python -u run.py train_single \
     -p \
