@@ -39,7 +39,7 @@ if __name__ == '__main__':
     }
     for name, subcommand in subcommands.items():
         subparser = subcommand.add_subparser(name, subparsers)
-        subparser.add_argument('--conf', '-c', default='config.ini',
+        subparser.add_argument('--conf', '-c', default=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.ini'),
                                help='path to config file')
         subparser.add_argument('--file', '-f', default='exp/evahan',
                                help='path to saved files')
@@ -77,6 +77,11 @@ if __name__ == '__main__':
     args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     args = Config(args.conf).update(vars(args))
+    
+    # Resolve base_model path relative to the script directory if it's a relative path
+    if hasattr(args, 'base_model') and args.base_model and not os.path.isabs(args.base_model):
+        args.base_model = os.path.join(os.path.dirname(os.path.abspath(__file__)), args.base_model)
+        
     print(f"Run the subcommand in mode {args.mode}")
     cmd = subcommands[args.mode]
     cmd(args)
