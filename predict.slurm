@@ -14,33 +14,21 @@ source /media02/ddien02/datnd/miniconda3/etc/profile.d/conda.sh
 conda activate /media02/ddien02/thanhxuan217/envs/sikubert
 
 data="/data"
-pred_data_file="test"
-pred_data_file_zz="test"
-pred_path="result.a.txt"
-pred_path_zz="result.zz.a.txt"
+pred_data_file="test.parquet"
+pred_path="result.txt"
 
 feat="SIKU-BERT"
 method="blstm.crf"
 batchsize=512
 
-# predict on Test A set
+# predict on Test set
 python -u run.py predict \
     -p \
+    --streaming \
     --feat=$feat \
     --data=$data \
     --pred_data=$data/$pred_data_file \
     --pred_path=TestPredict/$pred_path \
     --batch_size=$batchsize \
     -f=exp/$feat.$method.gram.nopunc.clr.llm \
-    > log/pred/$feat.$method.gram.llm.nopunc.pred.clr.a.log 2>&1
-
-# predict on zz test set (Test B)
-python -u run.py predict \
-    -p \
-    --feat=$feat \
-    --data=$data \
-    --pred_data=$data/$pred_data_file_zz \
-    --pred_path=TestPredict/$pred_path_zz \
-    --batch_size=$batchsize \
-    -f=exp/$feat.$method.gram.nopunc.clr.llm \
-    > log/pred/$feat.$method.gram.llm.nopunc.pred.clr.zz.a.log 2>&1
+    > log/pred/$feat.$method.gram.llm.nopunc.pred.clr.log 2>&1

@@ -63,6 +63,9 @@ if __name__ == '__main__':
                                help='the task type to run')
         subparser.add_argument('--base_model', default=None,
                                help='overrides base_model in config.ini (e.g., local path or HF repo ID)')
+        if name in ['predict', 'predict_single']:
+            subparser.add_argument('--streaming', action='store_true',
+                                   help='whether to use streaming parquet datasets')
 
     args = parser.parse_args()
     print(f'NOTE: {args.feat} 模型')
