@@ -21,6 +21,7 @@ mkdir -p log/train exp
 
 python -u run.py train_single \
     -p \
+    --base_model=../sinonom-ss/pretrained/sikubert \
     --feat=$feat \
     --data=$data \
     --batch_size=$batchsize \

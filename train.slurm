@@ -20,6 +20,7 @@ batchsize=50
 
 python -u run.py train \
     -p \
+    --base_model=../sinonom-ss/pretrained/sikubert \
     --feat=$feat \
     --data=$data \
     --batch_size=$batchsize \

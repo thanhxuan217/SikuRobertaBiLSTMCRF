@@ -8,6 +8,7 @@ batchsize=50
 # 训练gram
 CUDA_VISIBLE_DEVICES=7 nohup python -u run.py train \
     -p \
+    --base_model=../sinonom-ss/pretrained/sikubert \
     --feat=$feat \
     --data=dataset/$data \
     --batch_size=$batchsize \
