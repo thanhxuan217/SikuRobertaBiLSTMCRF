@@ -86,14 +86,22 @@ if __name__ == '__main__':
     
     # Resolve base_model path relative to the script directory if it's a relative path and exists locally
     if hasattr(args, 'base_model') and args.base_model:
+        # Strip trailing slashes that cause HF Hub validation errors
+        args.base_model = args.base_model.rstrip('/\\')
+        
         if not os.path.isabs(args.base_model):
             local_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), args.base_model)
             if os.path.exists(local_path):
                 args.base_model = local_path
+            else:
+                print(f"Warning: The relative base_model path '{local_path}' does not exist. Will attempt to load from Hugging Face Hub.")
+                if args.base_model == 'SIKU-BERT':
+                    args.base_model = 'SIKU-BERT/sikuroberta'
+                    print(f"Mapped base_model to '{args.base_model}' for Hugging Face Hub.")
         
         # Add clear error if it was meant to be local but is missing
         if os.path.isabs(args.base_model) and not os.path.exists(args.base_model):
-            print(f"Warning: The specified base_model local path '{args.base_model}' does not exist.")
+            print(f"Warning: The specified base_model absolute path '{args.base_model}' does not exist. Will attempt to load from Hugging Face Hub.")
         
     print(f"Run the subcommand in mode {args.mode}")
     cmd = subcommands[args.mode]
