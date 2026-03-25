@@ -45,9 +45,9 @@ class Train_single(CMD):
         train, dev = loader.train, loader.validation
         # print(len(train))
         self.trainset = DataLoader(train, batch_size=args.batch_size,
-                                   shuffle=True, collate_fn=collate_fn)
+                                   collate_fn=collate_fn)
         self.devset = DataLoader(dev, batch_size=args.batch_size,
-                                 shuffle=False, collate_fn=collate_fn)
+                                 collate_fn=collate_fn)
 
         # create the model
         print("Create the model.")

@@ -52,9 +52,9 @@ class Train(CMD):
         
         # Khởi tạo DataLoader để tải dữ liệu huấn luyện và xác thực theo từng batch
         self.trainset = DataLoader(train, batch_size=args.batch_size,
-                                   shuffle=True, collate_fn=collate_fn)
+                                   collate_fn=collate_fn)
         self.devset = DataLoader(dev, batch_size=args.batch_size,
-                                 shuffle=False, collate_fn=collate_fn)
+                                 collate_fn=collate_fn)
 
         # create the model
         print("Create the model.")

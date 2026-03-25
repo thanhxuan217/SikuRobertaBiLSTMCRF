@@ -58,7 +58,7 @@ if __name__ == '__main__':
                                help='whether to train jointly')
         subparser.add_argument('--batch_size', default=32, type=int,
                                help='batch size')
-        subparser.add_argument('--task', default='segmentation',
+        subparser.add_argument('--task', default='punctuation',
                                choices=['segmentation', 'punctuation'],
                                help='the task type to run')
         subparser.add_argument('--base_model', default=None,
