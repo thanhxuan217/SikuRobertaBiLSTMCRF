@@ -1,6 +1,7 @@
 import torch
 import os
 import glob
+import pyarrow.parquet as pq
 from datasets import load_dataset
 from transformers import AutoTokenizer
 from ..utils.common import pad, bos, eos
@@ -17,6 +18,7 @@ class ParquetStreamingDataset(torch.utils.data.IterableDataset):
     """
     def __init__(self, data_files, tokenizer, labels_dic, pad_id, is_crf2=False):
         # data_files co the la glob pattern (str) hoac list cac file paths
+        self.data_files = data_files if isinstance(data_files, list) else [data_files]
         self.dataset = load_dataset('parquet', data_files=data_files, split='train', streaming=True)
         self.tokenizer = tokenizer
         self.labels_dic = labels_dic
@@ -26,6 +28,14 @@ class ParquetStreamingDataset(torch.utils.data.IterableDataset):
         self.eos = eos
         self.pad = pad
         self.is_crf2 = is_crf2
+
+        # Pre-compute total row count from parquet metadata (fast, no data loaded)
+        self._length = sum(
+            pq.ParquetFile(f).metadata.num_rows for f in self.data_files
+        )
+
+    def __len__(self):
+        return self._length
 
     def __iter__(self):
         for item in self.dataset:
