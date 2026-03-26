@@ -8,6 +8,7 @@ thiết lập phân cấp learning rate (classification head học nhanh hơn) v
 """
 
 from datetime import datetime, timedelta
+import os
 
 from .cmd_single import CMD
 
@@ -81,6 +82,7 @@ class Train_single(CMD):
                                        decay ** (1 / decay_steps))
         total_time = timedelta()
         best_e, best_metric = 1, Metric()
+        saved_best_model = False
 
         for epoch in range(1, args.epochs + 1):
             start = datetime.now()
@@ -101,6 +103,7 @@ class Train_single(CMD):
             if metric_punc > best_metric and epoch > args.patience // 5:
                 best_e, best_metric = epoch, metric_punc
                 self.model.save(args.save_model)
+                saved_best_model = True
                 print(f"{t} elapsed (saved)\n")
             else:
                 print(f"{t} elapsed\n")
@@ -118,7 +121,22 @@ class Train_single(CMD):
             if epoch - best_e >= args.patience:
                 break
 
-        self.model = self.model_cl.load(args.save_model)
+        if not saved_best_model:
+            print(
+                f"No best checkpoint was saved during training. "
+                f"Saving the final model to {args.save_model}."
+            )
+            self.model.save(args.save_model)
+            saved_best_model = True
+            best_e = epoch
+
+        if os.path.exists(args.save_model):
+            self.model = self.model_cl.load(args.save_model)
+        else:
+            print(
+                f"Warning: checkpoint '{args.save_model}' was not found after training. "
+                f"Using the in-memory model for final evaluation."
+            )
         loss, metric_punc = self.evaluate(self.devset)
 
         print(f"max score of dev is {best_metric.score:.2%} at epoch {best_e}")
