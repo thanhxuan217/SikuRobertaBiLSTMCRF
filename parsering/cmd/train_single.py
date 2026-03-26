@@ -86,7 +86,11 @@ class Train_single(CMD):
             start = datetime.now()
             print(f"Epoch {epoch} / {args.epochs}:")
 
-            self.train(self.trainset)
+            train_stats = self.train(self.trainset)
+            print(
+                f"{'train:':6} Loss: {train_stats['avg_loss']:.4f} | "
+                f"Time: {timedelta(seconds=int(train_stats['elapsed_seconds']))}"
+            )
 
             loss, metric_punc = self.evaluate(self.devset)
             print(f"{'dev:':6} Loss: {loss:.4f}")
@@ -97,10 +101,20 @@ class Train_single(CMD):
             if metric_punc > best_metric and epoch > args.patience // 5:
                 best_e, best_metric = epoch, metric_punc
                 self.model.save(args.save_model)
-                print(f"{t}s elapsed (saved)\n")
+                print(f"{t} elapsed (saved)\n")
             else:
-                print(f"{t}s elapsed\n")
+                print(f"{t} elapsed\n")
             total_time += t
+
+            completed_ratio = epoch / args.epochs * 100
+            avg_epoch_time = total_time / epoch
+            remaining_epochs = args.epochs - epoch
+            eta_remaining = avg_epoch_time * remaining_epochs
+            print(
+                f"[progress] epoch {epoch}/{args.epochs} ({completed_ratio:.1f}%) | "
+                f"total_elapsed={total_time} | est_remaining={eta_remaining}\n"
+            )
+
             if epoch - best_e >= args.patience:
                 break
 

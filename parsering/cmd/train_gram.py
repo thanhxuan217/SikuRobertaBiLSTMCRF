@@ -100,7 +100,11 @@ class Train(CMD):
             print(f"Epoch {epoch} / {args.epochs}:")
 
             # Gọi hàm train từ lớp cha CMD để thực hiện lan truyền xuôi/ngược cho epoch này
-            self.train(self.trainset)
+            train_stats = self.train(self.trainset)
+            print(
+                f"{'train:':6} Loss: {train_stats['avg_loss']:.4f} | "
+                f"Time: {timedelta(seconds=int(train_stats['elapsed_seconds']))}"
+            )
             
             # Đánh giá mô hình trên tập dev/validation sau mỗi epoch
             loss, metric_non_s, metric_stop = self.evaluate(self.devset)
@@ -113,10 +117,19 @@ class Train(CMD):
             if metric_stop > best_metric and epoch > args.patience // 5:
                 best_e, best_metric = epoch, metric_stop
                 self.model.save(args.save_model)
-                print(f"{t}s elapsed (saved)\n")
+                print(f"{t} elapsed (saved)\n")
             else:
-                print(f"{t}s elapsed\n")
+                print(f"{t} elapsed\n")
             total_time += t
+
+            completed_ratio = epoch / args.epochs * 100
+            avg_epoch_time = total_time / epoch
+            remaining_epochs = args.epochs - epoch
+            eta_remaining = avg_epoch_time * remaining_epochs
+            print(
+                f"[progress] epoch {epoch}/{args.epochs} ({completed_ratio:.1f}%) | "
+                f"total_elapsed={total_time} | est_remaining={eta_remaining}\n"
+            )
             
             # Nếu mô hình không cải thiện sau 'patience' epochs thì dừng sớm (Early Stopping)
             if epoch - best_e >= args.patience:

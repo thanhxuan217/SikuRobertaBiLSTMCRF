@@ -10,8 +10,10 @@ Cung cấp các hàm core pipeline như `train()`, `evaluate()` và `predict()`.
 
 import os
 import sys
+from datetime import timedelta
 from typing import Any
 from copy import deepcopy
+from time import perf_counter
 
 from ..gram_crf_model import bigram_bert_model
 
@@ -40,13 +42,23 @@ class CMD(object):
         self.criterion = nn.CrossEntropyLoss()
         self.softmax = nn.Softmax(dim=-1)
 
+    @staticmethod
+    def _format_duration(seconds):
+        return str(timedelta(seconds=int(seconds)))
+
     def train(self, loader):
         """
         Hàm thực hiện một epoch huấn luyện.
         """
         self.model.train() # Đưa mô hình về chế độ huấn luyện (kích hoạt dropout, v.v.)
         torch.set_grad_enabled(True) # Bật tính toán đạo hàm
-        for data in loader:
+        total_batches = len(loader)
+        log_every = max(1, total_batches // 10)
+        start_time = perf_counter()
+        running_loss = 0.0
+        batch_count = 0
+
+        for step, data in enumerate(loader, 1):
             # Dữ liệu đầu vào lấy từ DataLoader
             ((chars, bi_chars, bert_input, attention_mask, mask),
              non_stop_tags, stop_tags) = data
@@ -63,6 +75,8 @@ class CMD(object):
             
             # Tổng hợp lỗi từ 2 task (classification)
             loss = non_stop_ret['loss'] + stop['loss']
+            running_loss += loss.item()
+            batch_count = step
             
             # Lan truyền ngược (Backpropagation) để tính gradient
             loss.backward()
@@ -74,6 +88,30 @@ class CMD(object):
             # Cập nhật trọng số của mô hình
             self.optimizer.step()
             self.scheduler.step()
+
+            if step == 1 or step % log_every == 0 or step == total_batches:
+                elapsed = perf_counter() - start_time
+                avg_loss = running_loss / step
+                progress = step / total_batches * 100
+                eta_seconds = (elapsed / step) * (total_batches - step)
+                print(
+                    f"[train] {step}/{total_batches} ({progress:5.1f}%) | "
+                    f"loss={avg_loss:.4f} | elapsed={self._format_duration(elapsed)} | "
+                    f"eta={self._format_duration(eta_seconds)}"
+                )
+
+        elapsed = perf_counter() - start_time
+        avg_loss = running_loss / batch_count if batch_count else 0.0
+        print(
+            f"[train] completed | batches={batch_count} | "
+            f"avg_loss={avg_loss:.4f} | time={self._format_duration(elapsed)}"
+        )
+
+        return {
+            'avg_loss': avg_loss,
+            'elapsed_seconds': elapsed,
+            'num_batches': batch_count
+        }
 
     @torch.no_grad()
     def evaluate(self, loader):
