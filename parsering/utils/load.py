@@ -622,7 +622,7 @@ class Load:
         # return ((tokens.to(self.args.device), bi_chars.to(self.args.device), bert_input.to(self.args.device),
         #          attention_mask.to(self.args.device), mask.to(self.args.device)),
         #         non_stop_tags.to(self.args.device), stop_tags.to(self.args.device))
-        return ((tokens.to(self.args.device), bi_chars, bert_input.to(self.args.device),
+        return ((tokens.to(self.args.device), bi_chars.to(self.args.device), bert_input.to(self.args.device),
                  attention_mask.to(self.args.device), mask.to(self.args.device)),
                 non_stop_tags.to(self.args.device), stop_tags.to(self.args.device))
 

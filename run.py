@@ -45,7 +45,7 @@ if __name__ == '__main__':
                                help='path to saved files')
         subparser.add_argument('--preprocess', '-p', action='store_true',
                                help='whether to preprocess the data first')
-        subparser.add_argument('--device', '-d', default='1',
+        subparser.add_argument('--device', '-d', default='0',
                                help='ID of GPU to use')
         subparser.add_argument('--seed', '-s', default=1, type=int,
                                help='seed for generating random numbers')
@@ -73,13 +73,31 @@ if __name__ == '__main__':
     print(f'The process id is {os.getpid()}')
     print(f"Set the max num of threads to {args.threads}")
     print(f"Set the seed for generating random numbers to {args.seed}")
-    print(f"Set the device with ID {args.device} visible")
+    
+    # Improved GPU logic: Only override if explicitly requested or if no visible devices are set.
+    # On Kaggle, CUDA_VISIBLE_DEVICES is often pre-configured.
+    if args.device != '0' or 'CUDA_VISIBLE_DEVICES' not in os.environ:
+        print(f"Setting CUDA_VISIBLE_DEVICES with ID {args.device}")
+        os.environ['CUDA_VISIBLE_DEVICES'] = args.device
+    else:
+        print(f"Using environment-provided CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES')}")
+
     torch.set_num_threads(args.threads)
     seed_torch(args.seed)
-    os.environ['CUDA_VISIBLE_DEVICES'] = args.device
 
     args.save_model = os.path.join(args.file, 'model.pth')
-    args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    
+    cuda_available = torch.cuda.is_available()
+    print(f"CUDA is available: {cuda_available}")
+    if cuda_available:
+        try:
+            print(f"GPU Name: {torch.cuda.get_device_name(0)}")
+        except Exception:
+            print("GPU Name: Could not retrieve device name.")
+        args.device = 'cuda'
+    else:
+        print("CUDA NOT detected. Falling back to CPU training.")
+        args.device = 'cpu'
 
     cmd_args = vars(args)
     if cmd_args.get('base_model') is None:
