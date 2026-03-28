@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # @Time    : 2024/1/18 18:16
 
+import os
 import torch
 import torch.nn as nn
 from parsering.modules import BertEmbedding, BiLSTM, MLP, CRF
@@ -16,6 +17,7 @@ class roberta_bilstm_crf(nn.Module):
 
         self.args = args
         self.pretrained = False
+        self.use_qlora = getattr(args, 'use_qlora', False)
         
         # 1. Tầng Embedding (Nhúng kí tự / Character Embedding)
         self.char_embed = nn.Embedding(num_embeddings=args.n_chars,
@@ -23,10 +25,26 @@ class roberta_bilstm_crf(nn.Module):
         n_lstm_input = args.n_embed  # Tổng số chiều input cho LSTM
 
         # 2. Tầng BERT Embedding (Lấy đặc trưng phong phú từ Roberta/BERT model)
+        # Nếu dùng QLoRA, truyền quantization config để load BERT ở dạng 4-bit
+        quantization_config = None
+        if self.use_qlora:
+            from transformers import BitsAndBytesConfig
+            quantization_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_compute_dtype=torch.float16,
+            )
+        
         self.feat_embed = BertEmbedding(model=args.base_model,
                                         n_layers=args.n_bert_layers,
-                                        n_out=args.n_feat_embed)
+                                        n_out=args.n_feat_embed,
+                                        quantization_config=quantization_config)
         n_lstm_input += args.n_feat_embed
+
+        # Áp dụng LoRA adapters lên BERT nếu dùng QLoRA
+        if self.use_qlora:
+            self._apply_lora(args)
 
         # Lớp Dropout cho Embedding (để chống overfitting)
         self.embed_dropout = IndependentDropout(p=args.embed_dropout)
@@ -48,6 +66,25 @@ class roberta_bilstm_crf(nn.Module):
 
         self.pad_index = args.pad_index
         self.unk_index = args.unk_index
+
+    def _apply_lora(self, args):
+        """Áp dụng LoRA adapters lên BERT backbone cho QLoRA fine-tuning."""
+        from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+        
+        # Chuẩn bị model cho k-bit training (enable gradient cho input embeddings, etc.)
+        self.feat_embed.bert = prepare_model_for_kbit_training(self.feat_embed.bert)
+        
+        lora_config = LoraConfig(
+            r=getattr(args, 'lora_r', 16),
+            lora_alpha=getattr(args, 'lora_alpha', 32),
+            lora_dropout=getattr(args, 'lora_dropout', 0.05),
+            bias="none",
+            target_modules=["query", "value"],  # Áp dụng LoRA vào attention layers
+            task_type="FEATURE_EXTRACTION",
+        )
+        
+        self.feat_embed.bert = get_peft_model(self.feat_embed.bert, lora_config)
+        self.feat_embed.bert.print_trainable_parameters()
 
     def forward(self, feed_dict, target=None, do_predict=False):
         """
@@ -102,28 +139,65 @@ class roberta_bilstm_crf(nn.Module):
     def load(cls, path):
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         state = load_checkpoint(path, map_location=device)
-        model = cls(restore_args(state['args']))
-        # model.load_pretrained(state['pretrained'])
-        model.load_state_dict(state['state_dict'], False)
+        args = restore_args(state['args'])
+        
+        # Khi load, tắt QLoRA để tránh re-quantize
+        # LoRA weights đã được merge hoặc load riêng
+        original_qlora = getattr(args, 'use_qlora', False)
+        args.use_qlora = False
+        
+        model = cls(args)
+        
+        # Load LoRA adapter weights nếu có
+        lora_dir = os.path.join(os.path.dirname(path), 'lora_adapters')
+        if original_qlora and os.path.exists(lora_dir):
+            from peft import PeftModel
+            model.feat_embed.bert = PeftModel.from_pretrained(
+                model.feat_embed.bert, lora_dir
+            )
+            # Merge LoRA weights để inference nhanh hơn
+            model.feat_embed.bert = model.feat_embed.bert.merge_and_unload()
+            # Load phần còn lại (non-BERT weights)
+            non_bert_state = {k: v for k, v in state['state_dict'].items() 
+                            if 'feat_embed.bert' not in k}
+            model.load_state_dict(non_bert_state, strict=False)
+        else:
+            model.load_state_dict(state['state_dict'], False)
+        
         model.to(device)
-
         return model
 
     def save(self, path):
         state_dict, pretrained = self.state_dict(), None
-        if self.pretrained:
-            pretrained = {'embed': state_dict.pop('char_pretrained.weight')}
-            if hasattr(self, 'bi_pretrained'):
-                pretrained.update(
-                    {'bi_embed': state_dict.pop('bi_pretrained.weight')})
-            if hasattr(self, 'tri_pretrained'):
-                pretrained.update(
-                    {'tri_embed': state_dict.pop('tri_pretrained.weight')})
-        state = {
-            'args': serialize_args(self.args),
-            'state_dict': state_dict,
-            'pretrained': pretrained
-        }
+        
+        if self.use_qlora:
+            # Lưu LoRA adapters riêng
+            lora_dir = os.path.join(os.path.dirname(path), 'lora_adapters')
+            self.feat_embed.bert.save_pretrained(lora_dir)
+            print(f"LoRA adapters saved to {lora_dir}")
+            
+            # Lưu các weights khác (không phải BERT) vào state_dict chính
+            non_bert_state = {k: v for k, v in state_dict.items() 
+                            if 'feat_embed.bert' not in k}
+            state = {
+                'args': serialize_args(self.args),
+                'state_dict': non_bert_state,
+                'pretrained': pretrained
+            }
+        else:
+            if self.pretrained:
+                pretrained = {'embed': state_dict.pop('char_pretrained.weight')}
+                if hasattr(self, 'bi_pretrained'):
+                    pretrained.update(
+                        {'bi_embed': state_dict.pop('bi_pretrained.weight')})
+                if hasattr(self, 'tri_pretrained'):
+                    pretrained.update(
+                        {'tri_embed': state_dict.pop('tri_pretrained.weight')})
+            state = {
+                'args': serialize_args(self.args),
+                'state_dict': state_dict,
+                'pretrained': pretrained
+            }
         torch.save(state, path)
 
 

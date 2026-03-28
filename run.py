@@ -63,6 +63,14 @@ if __name__ == '__main__':
                                help='the task type to run')
         subparser.add_argument('--base_model', default=None,
                                help='overrides base_model in config.ini (e.g., local path or HF repo ID)')
+        subparser.add_argument('--use_qlora', action='store_true',
+                               help='enable QLoRA (4-bit quantization + LoRA adapters) for BERT backbone')
+        subparser.add_argument('--lora_r', default=None, type=int,
+                               help='LoRA rank (default: 16)')
+        subparser.add_argument('--lora_alpha', default=None, type=int,
+                               help='LoRA alpha scaling (default: 32)')
+        subparser.add_argument('--lora_dropout', default=None, type=float,
+                               help='LoRA dropout (default: 0.05)')
         if name in ['predict', 'predict_single']:
             subparser.add_argument('--streaming', action='store_true',
                                    help='whether to use streaming parquet datasets')

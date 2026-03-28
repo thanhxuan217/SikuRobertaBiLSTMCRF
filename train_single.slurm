@@ -27,3 +27,14 @@ python -u run.py train_single \
     --batch_size=$batchsize \
     -f=exp/$feat.$method.crf_last.nopunc.clr.llm \
     > log/train/$feat.$method.crf_last.llm.nopunc.clr.log 2>&1
+
+# === QLoRA training (uncomment to use) ===
+# python -u run.py train_single \
+#     -p \
+#     --base_model=../sinonom-ss/pretrained/sikubert \
+#     --feat=$feat \
+#     --data=$data \
+#     --batch_size=$batchsize \
+#     --use_qlora \
+#     -f=exp/$feat.$method.qlora \
+#     > log/train/$feat.$method.qlora.log 2>&1
