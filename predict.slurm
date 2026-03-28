@@ -24,7 +24,7 @@ batchsize=512
 mkdir -p log/pred TestPredict
 
 # predict on Test set (load LoRA-finetuned model)
-python -u run.py predict \
+python -u run.py predict_single \
     -p \
     --streaming \
     --feat=$feat \

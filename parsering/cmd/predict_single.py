@@ -48,7 +48,7 @@ class Predict_single(CMD):
         loader = Load_pred(args)
         
         # Hàm gom data cho prediction
-        collate_fn = getattr(loader, 'collate_fn_bigram_pred', loader.collate_fn_crf_last) if getattr(args, 'streaming', False) else loader.collate_fn_bigram_pred
+        collate_fn = loader.collate_fn_bigram_pred
 
         test = DataLoader(loader.test, batch_size=args.batch_size,
                           shuffle=False, collate_fn=collate_fn)
