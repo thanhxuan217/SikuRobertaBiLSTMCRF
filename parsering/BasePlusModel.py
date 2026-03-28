@@ -75,9 +75,9 @@ class roberta_bilstm_crf(nn.Module):
         self.feat_embed.bert = prepare_model_for_kbit_training(self.feat_embed.bert)
         
         lora_config = LoraConfig(
-            r=getattr(args, 'lora_r', 16),
-            lora_alpha=getattr(args, 'lora_alpha', 32),
-            lora_dropout=getattr(args, 'lora_dropout', 0.05),
+            r=getattr(args, 'lora_r', 16) or 16,
+            lora_alpha=getattr(args, 'lora_alpha', 32) or 32,
+            lora_dropout=getattr(args, 'lora_dropout', 0.05) or 0.05,
             bias="none",
             target_modules=["query", "value"],  # Áp dụng LoRA vào attention layers
             task_type="FEATURE_EXTRACTION",

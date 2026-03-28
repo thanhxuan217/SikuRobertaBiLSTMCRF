@@ -110,6 +110,10 @@ if __name__ == '__main__':
     cmd_args = vars(args)
     if cmd_args.get('base_model') is None:
         cmd_args.pop('base_model', None)
+    # Remove None-valued LoRA args so they don't overwrite config.ini values
+    for key in ['lora_r', 'lora_alpha', 'lora_dropout']:
+        if cmd_args.get(key) is None:
+            cmd_args.pop(key, None)
 
     args = Config(args.conf).update(cmd_args)
     
