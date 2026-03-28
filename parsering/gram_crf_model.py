@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 from parsering.modules import MLP, BertEmbedding, BiLSTM, Biaffine, CRF
 from parsering.modules.dropout import IndependentDropout, SharedDropout
+from parsering.checkpoint import load_checkpoint, restore_args, serialize_args
 from torch.nn.utils.rnn import (pack_padded_sequence, pad_packed_sequence)
 
 
@@ -165,8 +166,9 @@ class bigram_bert_model(nn.Module):
             model: Đối tượng mô hình đã được phục hồi trọng số.
         """
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        state = torch.load(path, map_location=device)
-        model = cls(state['args'])
+        state = load_checkpoint(path, map_location=device)
+        args = restore_args(state['args'])
+        model = cls(args)
         # model.load_pretrained(state['pretrained'])
         model.load_state_dict(state['state_dict'], False)
         model.to(device)
@@ -190,7 +192,7 @@ class bigram_bert_model(nn.Module):
                 pretrained.update(
                     {'tri_embed': state_dict.pop('tri_pretrained.weight')})
         state = {
-            'args': self.args,
+            'args': serialize_args(self.args),
             'state_dict': state_dict,
             'pretrained': pretrained
         }
