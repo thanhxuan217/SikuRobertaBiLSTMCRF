@@ -21,7 +21,9 @@ feat="SIKU-BERT"
 method="blstm.crf"
 batchsize=512
 
-# predict on Test set
+mkdir -p log/pred TestPredict
+
+# predict on Test set (load LoRA-finetuned model)
 python -u run.py predict \
     -p \
     --streaming \
@@ -30,5 +32,7 @@ python -u run.py predict \
     --pred_data=$data/$pred_data_file \
     --pred_path=TestPredict/$pred_path \
     --batch_size=$batchsize \
-    -f=exp/$feat.$method.gram.nopunc.clr.llm \
-    > log/pred/$feat.$method.gram.llm.nopunc.pred.clr.log 2>&1
+    --base_model=../sinonom-ss/pretrained/sikubert \
+    --use_qlora \
+    -f=exp/$feat.$method.qlora \
+    > log/pred/$feat.$method.qlora.pred.log 2>&1
