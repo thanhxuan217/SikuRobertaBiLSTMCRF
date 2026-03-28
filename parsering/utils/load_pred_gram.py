@@ -103,12 +103,12 @@ class Load_pred(Load):
         # 2024.3.28 尝试第二种后处理：先放stop标点再放别的
         for j, stop in enumerate(pred_stop):
             # 必然表示停顿且放到后面的标点符号
-            if (t := self.id2stop_labels.get(stop)) != 'O':
+            if (t := self.id2stop_labels.get(stop, 'O')) != 'O':
                 tokens[j] += t
 
         for j, non_s in enumerate(pred_non_stop):
             # 放到前面的标签（不是表示停顿的标点符号）
-            for tag in self.id2labels.get(non_s)[::-1]:   # todo: 这里好像不需要倒序
+            for tag in self.id2labels.get(non_s, 'O')[::-1]:   # todo: 这里好像不需要倒序
                 if tag == 'O':
                     continue
                 elif tag in tag_after:
@@ -138,7 +138,7 @@ class Load_pred(Load):
 
         for j, punc_id in enumerate(pred_punc):
             # 放到前面的标签（不是表示停顿的标点符号）
-            for tag in self.id2labels.get(punc_id):
+            for tag in self.id2labels.get(punc_id, 'O'):
                 if tag == 'O':
                     continue
                 elif tag in tag_after:
@@ -162,8 +162,8 @@ class Load_pred(Load):
         """
 
         for j, (stop, non_s) in enumerate(zip(pred_stop, pred_non_stop)):
-            stop_punc = self.id2stop_labels.get(stop)
-            non_s_punc = self.id2labels.get(non_s)
+            stop_punc = self.id2stop_labels.get(stop, "O")
+            non_s_punc = self.id2labels.get(non_s, "O")
             if stop_punc == non_s_punc == "O":
                 continue
             elif non_s_punc == 'O':
