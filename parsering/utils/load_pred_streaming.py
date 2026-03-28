@@ -9,6 +9,7 @@ from datasets import load_dataset
 from transformers import AutoTokenizer
 from ..utils.common import pad, bos, eos
 from .load_pred_gram import Load_pred as Load_pred_gram
+from ..task_config import get_task_config
 
 
 def _find_parquet_files(directory):
@@ -16,13 +17,15 @@ def _find_parquet_files(directory):
     return sorted(glob.glob(pattern))
 
 class ParquetStreamingDataset_pred(torch.utils.data.IterableDataset):
-    def __init__(self, data_files, tokenizer, max_length=512):
+    def __init__(self, data_files, tokenizer, labels_dic=None, pad_id=0, max_length=512):
         self.dataset = load_dataset('parquet', data_files=data_files, split='train', streaming=True)
         self.tokenizer = tokenizer
         self.bos = bos
         self.eos = eos
         self.pad = pad
         self.max_length = max_length
+        self.labels_dic = labels_dic  # None nếu parquet không có labels
+        self.pad_id = pad_id
 
     def __iter__(self):
         for item in self.dataset:
@@ -48,13 +51,30 @@ class ParquetStreamingDataset_pred(torch.utils.data.IterableDataset):
             attention_mask = torch.ones(length).gt(0)
             mask = torch.tensor([0] + [1] * (length - 2) + [0])
             
-            yield (words_index, bi_words_index, bert_input, attention_mask, mask, text)
+            # Đọc labels từ parquet nếu có (để tính metrics)
+            labels = item.get("labels", None)
+            if labels is not None and self.labels_dic is not None:
+                mapped_tags = [self.labels_dic.get(e, self.pad_id) for e in labels[:length - 2]]
+                tags = torch.tensor(mapped_tags, dtype=torch.long)
+            else:
+                tags = None
+            
+            yield (words_index, bi_words_index, bert_input, attention_mask, mask, text, tags)
 
 class Load_pred_streaming(Load_pred_gram):
     def __init__(self, args):
         # Initialize base Load to get vocab stuff
         from .load import Load
         Load.__init__(self, args)
+        
+        # Khởi tạo label mapping từ task_config để map ground truth labels
+        task_name = getattr(args, 'task', 'punctuation')
+        task_config = get_task_config(task_name)
+        self.task_labels = task_config.labels
+        self.labels_dic = {key: index for index, key in enumerate(self.task_labels)}
+        self.id2task_labels = {index: key for index, key in enumerate(self.task_labels)}
+        self.n_labels = len(self.labels_dic) + 1  # +1 cho padding
+        self.pad_label_id = len(self.labels_dic)
         
         data_path = args.pred_data
         
@@ -75,10 +95,13 @@ class Load_pred_streaming(Load_pred_gram):
             
         print(f"[Load_pred_streaming] Test files: {test_files}")
         
-        self.test = ParquetStreamingDataset_pred(test_files, self.tokenizer)
+        self.test = ParquetStreamingDataset_pred(
+            test_files, self.tokenizer,
+            labels_dic=self.labels_dic, pad_id=self.pad_label_id
+        )
         
     def collate_fn_bigram_pred(self, batch):
-        tokens, bi_chars, bert_input, attention_mask, mask, strwords = zip(*batch)
+        tokens, bi_chars, bert_input, attention_mask, mask, strwords, tags_list = zip(*batch)
         
         tokens = self.pad(tokens, padding_value=self.chars2ids.get(pad, self.tokenizer.pad_token_id))
         bi_pad = self.bichars2ids.get(pad, 0) if hasattr(self, 'bichars2ids') else 0
@@ -88,5 +111,13 @@ class Load_pred_streaming(Load_pred_gram):
         mask = self.pad(mask, padding_value=0).bool()
         attention_mask = self.pad(attention_mask, padding_value=0).bool()
 
+        # Pad ground truth tags nếu có (dùng cho tính metrics)
+        has_tags = all(t is not None for t in tags_list)
+        if has_tags:
+            tags = self.pad(tags_list, padding_value=self.pad_label_id)
+            tags = tags.to(self.args.device)
+        else:
+            tags = None
+
         return (tokens.to(self.args.device), bi_chars.to(self.args.device), bert_input.to(self.args.device),
-                attention_mask.to(self.args.device), mask.to(self.args.device), strwords)
+                attention_mask.to(self.args.device), mask.to(self.args.device), strwords, tags)

@@ -11,10 +11,120 @@ sau đó nối nhãn, khôi phục thành văn bản hoàn chỉnh và lưu kế
 import os
 from datetime import datetime
 
+import numpy as np
+
 from .cmd_single import CMD
 from .cmd_single import CMD
 
 from torch.utils.data import DataLoader
+
+
+def _compute_metrics_from_confusion(confusion, label_names=None, ignore_ids=None):
+    """
+    Tính Precision, Recall, F1 từ confusion matrix (không lưu toàn bộ pred/gold lên RAM).
+    
+    Args:
+        confusion: numpy array (n_labels x n_labels), confusion[gold][pred] = count
+        label_names: dict {id: name} hoặc None
+        ignore_ids: set of label ids to ignore khi tính macro metrics (vd: 'O' label)
+    
+    Returns:
+        dict chứa per-class metrics và overall weighted/macro metrics
+    """
+    if ignore_ids is None:
+        ignore_ids = set()
+    
+    n = confusion.shape[0]
+    total_correct = 0
+    total_samples = 0
+    
+    per_class = {}
+    
+    for i in range(n):
+        tp = confusion[i, i]
+        fp = confusion[:, i].sum() - tp  # Cột i: tất cả pred = i, trừ đúng
+        fn = confusion[i, :].sum() - tp  # Hàng i: tất cả gold = i, trừ đúng
+        support = confusion[i, :].sum()  # Tổng mẫu thực sự thuộc class i
+        
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+        
+        name = label_names.get(i, str(i)) if label_names else str(i)
+        per_class[i] = {
+            'name': name,
+            'precision': precision,
+            'recall': recall,
+            'f1': f1,
+            'support': int(support),
+        }
+        
+        total_correct += tp
+        total_samples += support
+    
+    accuracy = total_correct / total_samples if total_samples > 0 else 0.0
+    
+    # Weighted average (trọng số theo support)
+    w_p, w_r, w_f = 0.0, 0.0, 0.0
+    for i in range(n):
+        w = per_class[i]['support'] / total_samples if total_samples > 0 else 0
+        w_p += per_class[i]['precision'] * w
+        w_r += per_class[i]['recall'] * w
+        w_f += per_class[i]['f1'] * w
+    
+    # Macro average (bỏ qua ignore_ids)
+    active = [i for i in range(n) if i not in ignore_ids and per_class[i]['support'] > 0]
+    m_p = sum(per_class[i]['precision'] for i in active) / len(active) if active else 0.0
+    m_r = sum(per_class[i]['recall'] for i in active) / len(active) if active else 0.0
+    m_f = sum(per_class[i]['f1'] for i in active) / len(active) if active else 0.0
+    
+    # Micro average (tổng TP/FP/FN toàn cục, bỏ qua ignore_ids)
+    micro_tp = sum(confusion[i, i] for i in active)
+    micro_fp = sum(confusion[:, i].sum() - confusion[i, i] for i in active)
+    micro_fn = sum(confusion[i, :].sum() - confusion[i, i] for i in active)
+    micro_p = micro_tp / (micro_tp + micro_fp) if (micro_tp + micro_fp) > 0 else 0.0
+    micro_r = micro_tp / (micro_tp + micro_fn) if (micro_tp + micro_fn) > 0 else 0.0
+    micro_f = 2 * micro_p * micro_r / (micro_p + micro_r) if (micro_p + micro_r) > 0 else 0.0
+    
+    return {
+        'accuracy': accuracy,
+        'weighted_precision': w_p,
+        'weighted_recall': w_r,
+        'weighted_f1': w_f,
+        'macro_precision': m_p,
+        'macro_recall': m_r,
+        'macro_f1': m_f,
+        'micro_precision': micro_p,
+        'micro_recall': micro_r,
+        'micro_f1': micro_f,
+        'per_class': per_class,
+        'total_samples': int(total_samples),
+    }
+
+
+def _print_metrics(metrics, label_names=None):
+    """In kết quả metrics ra console theo dạng bảng."""
+    print("\n" + "=" * 72)
+    print("  EVALUATION METRICS")
+    print("=" * 72)
+    
+    # Per-class table
+    print(f"  {'Label':<12} {'Precision':>10} {'Recall':>10} {'F1':>10} {'Support':>10}")
+    print("-" * 72)
+    for i, info in sorted(metrics['per_class'].items()):
+        name = info['name']
+        print(f"  {name:<12} {info['precision']:>10.4f} {info['recall']:>10.4f} "
+              f"{info['f1']:>10.4f} {info['support']:>10d}")
+    
+    print("-" * 72)
+    print(f"  {'Accuracy':<12} {'':>10} {'':>10} {metrics['accuracy']:>10.4f} {metrics['total_samples']:>10d}")
+    print(f"  {'Weighted':<12} {metrics['weighted_precision']:>10.4f} {metrics['weighted_recall']:>10.4f} "
+          f"{metrics['weighted_f1']:>10.4f} {metrics['total_samples']:>10d}")
+    print(f"  {'Macro':<12} {metrics['macro_precision']:>10.4f} {metrics['macro_recall']:>10.4f} "
+          f"{metrics['macro_f1']:>10.4f} {metrics['total_samples']:>10d}")
+    print(f"  {'Micro':<12} {metrics['micro_precision']:>10.4f} {metrics['micro_recall']:>10.4f} "
+          f"{metrics['micro_f1']:>10.4f} {metrics['total_samples']:>10d}")
+    print("=" * 72 + "\n")
 
 
 class Predict_single(CMD):
@@ -62,14 +172,34 @@ class Predict_single(CMD):
             print("Running prediction on streaming dataset...")
             self.model.eval()
             total_num = 0
+            
+            # Khởi tạo confusion matrix (dùng confusion matrix thay vì lưu toàn bộ lên RAM)
+            n_labels = getattr(loader, 'n_labels', None)
+            has_metrics = n_labels is not None
+            if has_metrics:
+                confusion = np.zeros((n_labels, n_labels), dtype=np.int64)
+                print(f"[Metrics] Confusion matrix initialized: {n_labels} labels")
+            
             with open(args.pred_path, mode='w', encoding='utf-8') as f:
                 import torch
                 with torch.no_grad():
                     for data in test:
-                        # For single CRF prediction, data might be returned by collate_fn without stop/nonstop distinctions.
-                        chars, bi_chars, bert_input, attention_mask, mask, str_chars = data
+                        # Unpack 7 phần tử (thêm tags so với trước)
+                        chars, bi_chars, bert_input, attention_mask, mask, str_chars, tags = data
                         feed_dict = {'chars': chars, 'bert': [bert_input, attention_mask], 'crf_mask': mask}
                         ret = self.model(feed_dict, do_predict=True)
+                        
+                        # Cập nhật confusion matrix batch-by-batch (không lưu toàn bộ pred lên RAM)
+                        if has_metrics and tags is not None:
+                            preds = ret['predict']  # List[List[int]]
+                            for i in range(len(preds)):
+                                l = mask[i].sum(dim=-1).item()
+                                pred_seq = preds[i][:l]
+                                gold_seq = tags[i][:l].tolist()
+                                for p, g in zip(pred_seq, gold_seq):
+                                    if g < n_labels and p < n_labels:
+                                        confusion[g][p] += 1
+                        
                         for i, (char_line, punc) in enumerate(zip(str_chars, ret['predict'])):
                             lens = mask[i].sum(dim=-1).item()
                             if hasattr(loader, 'back_2_sentence_last'):
@@ -79,6 +209,14 @@ class Predict_single(CMD):
                             f.write("".join(tokens) + '\n')
                         total_num += mask.sum().item()
             print("Numbers of total chars", total_num)
+            
+            # In kết quả metrics
+            if has_metrics:
+                label_names = getattr(loader, 'id2task_labels', None)
+                # Bỏ padding label khi tính macro
+                ignore_ids = {n_labels - 1}  # pad label id
+                metrics = _compute_metrics_from_confusion(confusion, label_names, ignore_ids)
+                _print_metrics(metrics, label_names)
         else:
             sliding_ids = loader.sliding_ids
             enters = loader.enters
@@ -118,3 +256,4 @@ class Predict_single(CMD):
         print(f'{datetime.now() - start}s elapsed.')
         print(f'Predict result save in {args.pred_path}')
         print('Finish.')
+
