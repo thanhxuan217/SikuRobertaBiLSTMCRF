@@ -64,10 +64,13 @@ def _compute_metrics_from_confusion(confusion, label_names=None, ignore_ids=None
     
     accuracy = total_correct / total_samples if total_samples > 0 else 0.0
     
-    # Weighted average (trọng số theo support)
+    # Weighted average (trọng số theo support, bỏ qua ignore_ids)
     w_p, w_r, w_f = 0.0, 0.0, 0.0
+    weighted_total = sum(per_class[i]['support'] for i in range(n) if i not in ignore_ids)
     for i in range(n):
-        w = per_class[i]['support'] / total_samples if total_samples > 0 else 0
+        if i in ignore_ids:
+            continue
+        w = per_class[i]['support'] / weighted_total if weighted_total > 0 else 0
         w_p += per_class[i]['precision'] * w
         w_r += per_class[i]['recall'] * w
         w_f += per_class[i]['f1'] * w
@@ -99,6 +102,7 @@ def _compute_metrics_from_confusion(confusion, label_names=None, ignore_ids=None
         'micro_f1': micro_f,
         'per_class': per_class,
         'total_samples': int(total_samples),
+        'ignore_ids': ignore_ids,
     }
 
 
@@ -108,10 +112,13 @@ def _print_metrics(metrics, label_names=None):
     print("  EVALUATION METRICS")
     print("=" * 72)
     
-    # Per-class table
+    # Per-class table (bỏ qua padding label)
+    ignore_ids = metrics.get('ignore_ids', set())
     print(f"  {'Label':<12} {'Precision':>10} {'Recall':>10} {'F1':>10} {'Support':>10}")
     print("-" * 72)
     for i, info in sorted(metrics['per_class'].items()):
+        if i in ignore_ids:
+            continue
         name = info['name']
         print(f"  {name:<12} {info['precision']:>10.4f} {info['recall']:>10.4f} "
               f"{info['f1']:>10.4f} {info['support']:>10d}")
