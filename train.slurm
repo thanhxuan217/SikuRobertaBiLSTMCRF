@@ -1,40 +1,32 @@
 #!/bin/bash
-#SBATCH --job-name=sikubert_cnn
-#SBATCH --output=softmax_logs/slurm_%j.out
-#SBATCH --error=softmax_logs/slurm_%j.err
+#SBATCH --job-name=sikubert_blstm_crf
+#SBATCH --output=logs/train_%j.out
+#SBATCH --error=logs/train_%j.err
 #SBATCH --partition=batch
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=16
-#SBATCH --gres=gpu:2
+#SBATCH --cpus-per-task=8
+#SBATCH --gres=gpu:1
 #SBATCH --mem=16G
-#SBATCH --time=24:00:00
+#SBATCH --time=48:00:00
 
 source /media02/ddien02/datnd/miniconda3/etc/profile.d/conda.sh
 conda activate /media02/ddien02/thanhxuan217/envs/sikubert
 
-data="/data"
+data="/media02/ddien02/thanhxuan217/main_src/data_punc"
 feat="SIKU-BERT"
 method="blstm.crf"
-batchsize=50
-mkdir -p log/train exp
+batchsize=64
+mkdir -p exp
 
 python -u run.py train \
     -p \
-    --base_model=../sinonom-ss/pretrained/sikubert \
+    --epochs="2" \
+    --device="0" \
     --feat=$feat \
+    --base_model="/media02/ddien02/thanhxuan217/main_src/pretrained/sikubert" \
     --data=$data \
     --batch_size=$batchsize \
-    -f=exp/$feat.$method.crf_last.nopunc.clr.llm \
-    > log/train/$feat.$method.crf_last.llm.nopunc.clr.log 2>&1
-
-# === QLoRA training (uncomment to use) ===
-# python -u run.py train \
-#     -p \
-#     --base_model=../sinonom-ss/pretrained/sikubert \
-#     --feat=$feat \
-#     --data=$data \
-#     --batch_size=$batchsize \
-#     --use_qlora \
-#     -f=exp/$feat.$method.qlora \
-#     > log/train/$feat.$method.qlora.log 2>&1
+    --task="punctuation" \
+    --use_qlora \
+    -f=/media02/ddien02/thanhxuan217/main_src/exp/$feat.$method.use_qlora
