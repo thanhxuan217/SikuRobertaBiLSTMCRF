@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=sikubert_cnn
-#SBATCH --output=logs/slurm_%j.out
-#SBATCH --error=logs/slurm_%j.err
+#SBATCH --output=softmax_logs/slurm_%j.out
+#SBATCH --error=softmax_logs/slurm_%j.err
 #SBATCH --partition=batch
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -17,6 +17,7 @@ data="/data"
 feat="SIKU-BERT"
 method="blstm.crf"
 batchsize=50
+mkdir -p log/train exp
 
 python -u run.py train \
     -p \
@@ -24,5 +25,16 @@ python -u run.py train \
     --feat=$feat \
     --data=$data \
     --batch_size=$batchsize \
-    -f=exp/$feat.$method.gram.nopunc.clr.llm \
-    > log/train/$feat.$method.gram.llm.nopunc.clr.log 2>&1
+    -f=exp/$feat.$method.crf_last.nopunc.clr.llm \
+    > log/train/$feat.$method.crf_last.llm.nopunc.clr.log 2>&1
+
+# === QLoRA training (uncomment to use) ===
+# python -u run.py train \
+#     -p \
+#     --base_model=../sinonom-ss/pretrained/sikubert \
+#     --feat=$feat \
+#     --data=$data \
+#     --batch_size=$batchsize \
+#     --use_qlora \
+#     -f=exp/$feat.$method.qlora \
+#     > log/train/$feat.$method.qlora.log 2>&1

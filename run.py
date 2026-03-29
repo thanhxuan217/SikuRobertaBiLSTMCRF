@@ -9,9 +9,7 @@ import numpy as np
 import random
 from parsering.config import Config
 
-from parsering.cmd.train_gram import Train
 from parsering.cmd.train_single import Train_single
-from parsering.cmd.predict_gram import Predict
 from parsering.cmd.predict_single import Predict_single
 
 
@@ -32,10 +30,8 @@ if __name__ == '__main__':
     )
     subparsers = parser.add_subparsers(title='Commands', dest='mode')
     subcommands = {
-        'train': Train(),
-        'train_single': Train_single(),
-        'predict': Predict(),
-        'predict_single': Predict_single()
+        'train': Train_single(),
+        'predict': Predict_single()
     }
     for name, subcommand in subcommands.items():
         subparser = subcommand.add_subparser(name, subparsers)
@@ -73,7 +69,7 @@ if __name__ == '__main__':
                                help='LoRA alpha scaling (default: 32)')
         subparser.add_argument('--lora_dropout', default=None, type=float,
                                help='LoRA dropout (default: 0.05)')
-        if name in ['predict', 'predict_single']:
+        if name == 'predict':
             subparser.add_argument('--streaming', action='store_true',
                                    help='whether to use streaming parquet datasets')
 

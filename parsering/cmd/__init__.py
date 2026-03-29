@@ -10,11 +10,7 @@ File khởi tạo module `cmd`.
 """
 
 
-from .train_gram import Train
 from .train_single import Train_single
-
-from .predict_gram import Predict
 from .predict_single import Predict_single
 
-__all__ = ['Train', 'Train_single',
-           'Predict', 'Predict_single']
+__all__ = ['Train_single', 'Predict_single']

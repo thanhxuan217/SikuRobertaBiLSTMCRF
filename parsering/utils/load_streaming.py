@@ -165,7 +165,7 @@ class Load:
                                   for i in range(len(tensors[0].size()))]
         out_tensor = tensors[0].data.new(*size).fill_(padding_value)
         for i, tensor in enumerate(tensors):
-            out_tensor[i][[slice(0, i) for i in tensor.size()]] = tensor
+            out_tensor[i][tuple(slice(0, dim_size) for dim_size in tensor.size())] = tensor
         return out_tensor
 
     def collate_fn_crf_last(self, batch):

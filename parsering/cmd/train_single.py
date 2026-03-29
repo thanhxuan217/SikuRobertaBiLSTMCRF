@@ -54,22 +54,21 @@ class Train_single(CMD):
 
         use_qlora = getattr(args, 'use_qlora', False)
 
+        self.model = self.model_cl(args)
         if use_qlora:
-            # QLoRA: BERT đã load lên GPU qua device_map="auto",
-            # chỉ cần move các module khác (char_embed, lstm, mlp, crf) sang GPU
-            self.model = self.model_cl(args)
+            # QLoRA: BERT đã load lên GPU qua device_map="auto" nếu dùng bitsandbytes,
+            # Move các module khác (char_embed, lstm, mlp, crf) sang GPU
             for name, module in self.model.named_children():
                 if name != 'feat_embed':
                     module.to(args.device)
             # Đảm bảo projection layer (nếu có) cũng trên GPU
             if hasattr(self.model.feat_embed, 'projection'):
                 self.model.feat_embed.projection.to(args.device)
-            # Đảm bảo LoRA adapter params trên GPU
-            for p in self.model.feat_embed.bert.parameters():
-                if p.requires_grad and not p.is_cuda:
-                    p.data = p.data.to(args.device)
+            # PEFT model hỗ trợ .to() an toàn để chuyển LoRA adapters lên GPU
+            # Không gán thủ công vào p.data để tránh optimizer nhận diệ device sai
+            self.model.feat_embed.bert.to(args.device)
         else:
-            self.model = self.model_cl(args).to(args.device)
+            self.model = self.model.to(args.device)
 
         print("Create the model.")
         print(f"{self.model}")

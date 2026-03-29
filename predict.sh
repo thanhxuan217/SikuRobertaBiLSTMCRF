@@ -9,26 +9,26 @@ method="blstm.crf"
 
 
 batchsize=512
-# 2024.3.2
-# Two crfs
-# predict on Test A set
+# 2024.3.30
+# One crf
+
 CUDA_VISIBLE_DEVICES=4 nohup python -u run.py predict \
     -p \
     --feat=$feat \
     --data=dataset/$data \
-    --pred_data=dataset/$pred_data_file\
+    --pred_data=dataset/$pred_data_file \
     --pred_path=TestPredict/$pred_path \
     --batch_size=$batchsize \
-    -f=exp/$feat.$method.gram.nopunc.clr.llm \
-    > log/pred/$feat.$method.gram.llm.nopunc.pred.clr.a.log 2>&1 &
+    -f=exp/$feat.$method.crf_last.nopunc.clr.llm \
+    > log/pred/$feat.$method.crf_last.llm.nopunc.pred.clr.a.log 2>&1 &
 
-# predict on zz test set (Test B)
-CUDA_VISIBLE_DEVICES=5 nohup python -u run.py predict \
+CUDA_VISIBLE_DEVICES=4 nohup python -u run.py predict \
     -p \
     --feat=$feat \
     --data=dataset/$data \
-    --pred_data=dataset/$pred_data_file_zz\
+    --pred_data=dataset/$pred_data_file_zz \
     --pred_path=TestPredict/$pred_path_zz \
     --batch_size=$batchsize \
-    -f=exp/$feat.$method.gram.nopunc.clr.llm \
-    > log/pred/$feat.$method.gram.llm.nopunc.pred.clr.zz.a.log 2>&1 &
+    -f=exp/$feat.$method.crf_last.nopunc.clr.llm \
+    > log/pred/$feat.$method.crf_last.llm.nopunc.pred.clr.zz.a.log 2>&1 &
+
