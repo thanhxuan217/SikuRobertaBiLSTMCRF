@@ -58,6 +58,8 @@ if __name__ == '__main__':
                                help='whether to train jointly')
         subparser.add_argument('--batch_size', default=32, type=int,
                                help='batch size')
+        subparser.add_argument('--epochs', default=None, type=int,
+                               help='number of training epochs (overrides config.ini)')
         subparser.add_argument('--task', default='punctuation',
                                choices=['segmentation', 'punctuation'],
                                help='the task type to run')
@@ -110,8 +112,8 @@ if __name__ == '__main__':
     cmd_args = vars(args)
     if cmd_args.get('base_model') is None:
         cmd_args.pop('base_model', None)
-    # Remove None-valued LoRA args so they don't overwrite config.ini values
-    for key in ['lora_r', 'lora_alpha', 'lora_dropout']:
+    # Remove None-valued optional args so they don't overwrite config.ini values
+    for key in ['lora_r', 'lora_alpha', 'lora_dropout', 'epochs']:
         if cmd_args.get(key) is None:
             cmd_args.pop(key, None)
 
