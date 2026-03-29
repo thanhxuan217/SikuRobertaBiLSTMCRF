@@ -34,6 +34,7 @@ class BertEmbedding(nn.Module):
                 model,
                 config=self.config,
                 quantization_config=quantization_config,
+                device_map="auto",
             )
         else:
             self.bert = AutoModel.from_pretrained(model, config=self.config)

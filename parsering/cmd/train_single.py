@@ -52,13 +52,28 @@ class Train_single(CMD):
         self.devset = DataLoader(dev, batch_size=args.batch_size,
                                  collate_fn=collate_fn)
 
-        # create the model
-        print("Create the model.")
+        use_qlora = getattr(args, 'use_qlora', False)
 
-        self.model = self.model_cl(args).to(args.device)
+        if use_qlora:
+            # QLoRA: BERT đã load lên GPU qua device_map="auto",
+            # chỉ cần move các module khác (char_embed, lstm, mlp, crf) sang GPU
+            self.model = self.model_cl(args)
+            for name, module in self.model.named_children():
+                if name != 'feat_embed':
+                    module.to(args.device)
+            # Đảm bảo projection layer (nếu có) cũng trên GPU
+            if hasattr(self.model.feat_embed, 'projection'):
+                self.model.feat_embed.projection.to(args.device)
+            # Đảm bảo LoRA adapter params trên GPU
+            for p in self.model.feat_embed.bert.parameters():
+                if p.requires_grad and not p.is_cuda:
+                    p.data = p.data.to(args.device)
+        else:
+            self.model = self.model_cl(args).to(args.device)
+
+        print("Create the model.")
         print(f"{self.model}")
 
-        use_qlora = getattr(args, 'use_qlora', False)
         
         # Setup Learning Rate
         lr = args.bert_lr
