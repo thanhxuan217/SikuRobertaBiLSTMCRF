@@ -148,12 +148,63 @@ class Train_single(CMD):
         total_time = timedelta()
         best_e, best_metric = 1, Metric()
         saved_best_model = False
+        start_epoch = 1
 
-        for epoch in range(1, args.epochs + 1):
+        if getattr(args, 'resume', False) and os.path.exists(args.save_model):
+            print(f"Resuming from checkpoint {args.save_model}...")
+            import torch
+            from parsering.checkpoint import load_checkpoint
+            try:
+                from safetensors.torch import load_file as safe_load_file
+            except ImportError:
+                safe_load_file = None
+                
+            checkpoint = load_checkpoint(args.save_model, map_location='cpu')
+            
+            state_dict = checkpoint['state_dict']
+            if use_qlora:
+                lora_dir = os.path.join(os.path.dirname(args.save_model), 'lora_adapters')
+                if os.path.exists(lora_dir):
+                    print(f"Loading LoRA adapters from {lora_dir}...")
+                    from peft import set_peft_model_state_dict
+                    sf_path = os.path.join(lora_dir, "adapter_model.safetensors")
+                    bin_path = os.path.join(lora_dir, "adapter_model.bin")
+                    if os.path.exists(sf_path) and safe_load_file:
+                        lora_weights = safe_load_file(sf_path)
+                    elif os.path.exists(bin_path):
+                        lora_weights = torch.load(bin_path, map_location='cpu', weights_only=True)
+                    else:
+                        raise FileNotFoundError(f"Cannot find adapter models in {lora_dir}")
+                    set_peft_model_state_dict(self.model.feat_embed.bert, lora_weights)
+            self.model.load_state_dict(state_dict, strict=False)
+            
+            if 'optimizer' in checkpoint:
+                self.optimizer.load_state_dict(checkpoint['optimizer'])
+                print("Restored optimizer state.")
+            if 'scheduler' in checkpoint:
+                self.scheduler.load_state_dict(checkpoint['scheduler'])
+                print("Restored scheduler state.")
+            if 'epoch' in checkpoint:
+                start_epoch = checkpoint['epoch'] + 1
+            if 'best_metric' in checkpoint:
+                best_metric = checkpoint['best_metric']
+            if 'best_e' in checkpoint:
+                best_e = checkpoint['best_e']
+            start_step = checkpoint.get('step', 0)
+            if start_step > 0:
+                print(f"Resuming training starting from epoch {start_epoch}, step {start_step}")
+            else:
+                print(f"Resuming training starting from epoch {start_epoch}")
+        else:
+            start_step = 0
+
+        for epoch in range(start_epoch, args.epochs + 1):
             start = datetime.now()
             print(f"Epoch {epoch} / {args.epochs}:")
 
-            train_stats = self.train(self.trainset)
+            train_stats = self.train(self.trainset, epoch=epoch, start_step=start_step, best_metric=best_metric, best_e=best_e)
+            # Reset start_step after the first resumed epoch finishes so the next epoch starts from 0
+            start_step = 0
             print(
                 f"{'train:':6} Loss: {train_stats['avg_loss']:.4f} | "
                 f"Time: {timedelta(seconds=int(train_stats['elapsed_seconds']))}"
@@ -164,14 +215,19 @@ class Train_single(CMD):
             print('punc', metric_punc)
 
             t = datetime.now() - start
+            best_model_path = args.save_model.replace('.pth', '_best.pth') if args.save_model.endswith('.pth') else args.save_model + '_best'
             # save the model if it is the best so far
-            if metric_punc > best_metric and epoch > args.patience // 5:
+            if metric_punc > best_metric:
                 best_e, best_metric = epoch, metric_punc
-                self.model.save(args.save_model)
+                self.model.save(best_model_path, optimizer=self.optimizer.state_dict(), scheduler=self.scheduler.state_dict(), epoch=epoch, best_metric=best_metric, best_e=best_e)
                 saved_best_model = True
-                print(f"{t} elapsed (saved)\n")
+                print(f"{t} elapsed (saved best metric to {best_model_path})\n")
             else:
                 print(f"{t} elapsed\n")
+                
+            # Unconditionally save latest state at the end of the epoch
+            self.model.save(args.save_model, optimizer=self.optimizer.state_dict(), scheduler=self.scheduler.state_dict(), epoch=epoch, step=0, best_metric=best_metric, best_e=best_e)
+            print(f"(saved current epoch-end state to {args.save_model})\n")
             total_time += t
 
             completed_ratio = epoch / args.epochs * 100
@@ -187,19 +243,32 @@ class Train_single(CMD):
                 break
 
         if not saved_best_model:
+            best_model_path = args.save_model.replace('.pth', '_best.pth') if args.save_model.endswith('.pth') else args.save_model + '_best'
             print(
                 f"No best checkpoint was saved during training. "
-                f"Saving the final model to {args.save_model}."
+                f"Saving the final model to {best_model_path}."
             )
-            self.model.save(args.save_model)
+            try:
+                self.model.save(best_model_path, optimizer=self.optimizer.state_dict(), scheduler=self.scheduler.state_dict(), epoch=epoch, step=0, best_metric=best_metric, best_e=best_e)
+            except UnboundLocalError:
+                # Tránh lỗi nếu `epoch` chưa hề tồn tại (dữ liệu train rỗng)
+                self.model.save(best_model_path)
             saved_best_model = True
-            best_e = epoch
+            try:
+                best_e = epoch
+            except UnboundLocalError:
+                best_e = 1
 
-        if os.path.exists(args.save_model):
+        best_model_path = args.save_model.replace('.pth', '_best.pth') if args.save_model.endswith('.pth') else args.save_model + '_best'
+        if os.path.exists(best_model_path):
+            print(f"Loading best checkpoint for final evaluation: {best_model_path}")
+            self.model = self.model_cl.load(best_model_path)
+        elif os.path.exists(args.save_model):
+            print(f"Loading latest checkpoint for final evaluation: {args.save_model}")
             self.model = self.model_cl.load(args.save_model)
         else:
             print(
-                f"Warning: checkpoint '{args.save_model}' was not found after training. "
+                f"Warning: neither '{best_model_path}' nor '{args.save_model}' was found after training. "
                 f"Using the in-memory model for final evaluation."
             )
         loss, metric_punc = self.evaluate(self.devset)

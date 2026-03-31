@@ -52,19 +52,23 @@ class CMD(object):
     def _format_duration(seconds):
         return str(timedelta(seconds=int(seconds)))
 
-    def train(self, loader):
+    def train(self, loader, epoch=1, start_step=0, best_metric=0.0, best_e=1):
         """
         Huấn luyện mô hình một epoch (luồng Single Task).
+        - Có bộ đếm tua nhanh (fast-forward) cho batch để resume giữa chừng.
         """
         self.model.train()
         torch.set_grad_enabled(True)
         total_batches = len(loader)
-        log_every = max(1, total_batches // 10)
+        log_every = 1
         start_time = perf_counter()
         running_loss = 0.0
         batch_count = 0
 
         for step, data in enumerate(loader, 1):
+            if step <= start_step:
+                continue
+                
             # Nhận data chỉ có chung 1 loại 'tags' duy nhất (thay vì stop_tags và non_stop_tags như gram model)
             ((chars, bi_chars, bert_input, attention_mask, mask), tags) = data
             self.optimizer.zero_grad()
@@ -89,17 +93,28 @@ class CMD(object):
 
             if step == 1 or step % log_every == 0 or step == total_batches:
                 elapsed = perf_counter() - start_time
-                avg_loss = running_loss / step
+                passed_steps = max(1, step - start_step)
+                avg_loss = running_loss / passed_steps
                 progress = step / total_batches * 100
-                eta_seconds = (elapsed / step) * (total_batches - step)
+                eta_seconds = (elapsed / passed_steps) * (total_batches - step)
                 print(
                     f"[train] {step}/{total_batches} ({progress:5.1f}%) | "
                     f"loss={avg_loss:.4f} | elapsed={self._format_duration(elapsed)} | "
                     f"eta={self._format_duration(eta_seconds)}"
                 )
+                
+            # Mid-epoch save checkpoint
+            if step % self.args.save_steps == 0:
+                print(f"Mid-epoch saving checkpoint at step {step}...")
+                self.model.save(self.args.save_model, 
+                                optimizer=self.optimizer.state_dict(), 
+                                scheduler=self.scheduler.state_dict(), 
+                                epoch=epoch, step=step, 
+                                best_metric=best_metric, best_e=best_e)
 
         elapsed = perf_counter() - start_time
-        avg_loss = running_loss / batch_count if batch_count else 0.0
+        passed_steps = max(1, batch_count - start_step)
+        avg_loss = running_loss / passed_steps if batch_count > start_step else 0.0
         print(
             f"[train] completed | batches={batch_count} | "
             f"avg_loss={avg_loss:.4f} | time={self._format_duration(elapsed)}"

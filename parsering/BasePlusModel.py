@@ -167,7 +167,7 @@ class roberta_bilstm_crf(nn.Module):
         model.to(device)
         return model
 
-    def save(self, path):
+    def save(self, path, **kwargs):
         state_dict, pretrained = self.state_dict(), None
         
         if self.use_qlora:
@@ -182,7 +182,8 @@ class roberta_bilstm_crf(nn.Module):
             state = {
                 'args': serialize_args(self.args),
                 'state_dict': non_bert_state,
-                'pretrained': pretrained
+                'pretrained': pretrained,
+                **kwargs
             }
         else:
             if self.pretrained:
@@ -196,7 +197,8 @@ class roberta_bilstm_crf(nn.Module):
             state = {
                 'args': serialize_args(self.args),
                 'state_dict': state_dict,
-                'pretrained': pretrained
+                'pretrained': pretrained,
+                **kwargs
             }
         torch.save(state, path)
 

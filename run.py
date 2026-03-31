@@ -59,6 +59,10 @@ if __name__ == '__main__':
         subparser.add_argument('--task', default='punctuation',
                                choices=['segmentation', 'punctuation'],
                                help='the task type to run')
+        subparser.add_argument('--resume', action='store_true',
+                               help='resume training from the saved checkpoint')
+        subparser.add_argument('--save_steps', default=10000, type=int,
+                               help='save checkpoint every N steps (default: 10000)')
         subparser.add_argument('--base_model', default=None,
                                help='overrides base_model in config.ini (e.g., local path or HF repo ID)')
         subparser.add_argument('--use_qlora', action='store_true',

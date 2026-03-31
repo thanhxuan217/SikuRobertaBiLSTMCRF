@@ -244,6 +244,36 @@ sbatch train.slurm            # Two-Stage
 
 ---
 
+## Resume Training
+
+If your training is interrupted (e.g., OOM, time limit, manual stop), you can resume from the last saved checkpoint. The model weights (including QLoRA adapters), optimizer state, scheduler state, current step, and training epoch will be restored automatically.
+
+By default, the model saves a working checkpoint (`model.pth`) every **10,000 steps** (mid-epoch) to prevent data loss on time-limited servers. The best model based on validation F1 score is saved separately as `model_best.pth`.
+
+```bash
+# Resume One-Stage Training
+python -u run.py train_single \
+    --feat=SIKU-BERT \
+    --data=data \
+    --task=punctuation \
+    -d=0 \
+    --save_steps=10000 \
+    -f=exp/SIKU-BERT.blstm.crf.single \
+    --resume
+
+# Resume with QLoRA (Must include --use_qlora)
+python -u run.py train_single \
+    --feat=SIKU-BERT \
+    --data=data \
+    --task=punctuation \
+    -d=0 \
+    --save_steps=5000 \
+    -f=exp/SIKU-BERT.blstm.crf.single \
+    --use_qlora --resume
+```
+
+---
+
 ## Prediction
 
 ```bash
