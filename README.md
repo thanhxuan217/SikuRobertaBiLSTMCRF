@@ -11,6 +11,7 @@
 - [Setup](#setup)
 - [Training on Kaggle](#training-on-kaggle-)
 - [Training Locally](#training-locally)
+- [Resume Training](#resume-training)
 - [Prediction](#prediction)
 - [Citation](#citation)
 
@@ -18,12 +19,7 @@
 
 ## Architecture
 
-The project supports **two approaches**:
-
-| Approach | Mode | Description |
-|----------|------|-------------|
-| **One-Stage (Single CRF)** | `train_single` | Một CRF duy nhất xử lý tất cả nhãn dấu câu. Đơn giản, nhanh hơn. |
-| **Two-Stage (Dual CRF)** | `train` | Hai CRF riêng biệt: một cho dấu ngắt câu, một cho dấu ngoặc. Phức tạp hơn. |
+Mô hình sử dụng kiến trúc **Single-Stage (Single CRF)** để xử lý tất cả các nhãn đấu câu trong một lần chạy duy nhất. Điều này giúp tối ưu tốc độ huấn luyện và suy luận trong khi vẫn đảm bảo độ chính xác cao.
 
 ```
 Input Text → SikuRoBERTa → BiLSTM → MLP → CRF → Predicted Labels
@@ -125,104 +121,45 @@ SIKU-BERT/
 
 ## Training on Kaggle 🚀
 
+Dự án mặc định sử dụng **QLoRA (4-bit quantization + LoRA)** để tối ưu bộ nhớ GPU, cho phép huấn luyện model RoBERTa lớn trên các GPU cấu hình thấp như T4.
+
 ### Bước 1: Chuẩn bị trên Kaggle
 
-1. **Upload SikuRoBERTa** lên Kaggle dưới dạng **Dataset** (ví dụ: `siku-roberta`)
+1. **Upload SikuRoBERTa** lên Kaggle dưới dạng **Dataset**
 2. **Dataset** của bạn (các file `.parquet`) cũng cần được add vào Kaggle Notebook
-3. Tạo một **Kaggle Notebook mới** với **GPU T4 x2** hoặc **P100**
-4. Bật **Internet** trong Settings
+3. Bật **Internet** trong Settings và chọn **GPU T4 x2** hoặc **P100**
 
-### Bước 2: Thêm Input Datasets
-
-Trong Kaggle Notebook, add 2 datasets:
-- Dataset parquet của bạn (VD: `your-username/your-dataset`)
-- SikuRoBERTa model (VD: `your-username/siku-roberta`)
-
-### Bước 3: Chạy Training
-
-Copy nội dung file [`kaggle_notebook.py`](kaggle_notebook.py) vào notebook, **sửa 2 biến sau**:
-
-```python
-# Đổi theo đường dẫn thực tế trên Kaggle
-KAGGLE_DATASET_DIR = "/kaggle/input/your-dataset-name"
-SIKU_BERT_PATH = "/kaggle/input/siku-roberta"
-```
-
-**Hoặc** chạy trực tiếp qua command line trong cell:
+### Bước 2: Chạy Training
 
 ```bash
 # Cell 1: Clone repo
 !git clone https://github.com/thanhxuan217/SikuRobertaBiLSTMCRF.git
 %cd SikuRobertaBiLSTMCRF
 
-# Cell 2: Install deps
-!pip install -q transformers datasets pyarrow scikit-learn
+# Cell 2: Install deps (bao gồm bitsandbytes và peft cho QLoRA)
+!pip install -q transformers datasets pyarrow scikit-learn bitsandbytes peft
 
-# Cell 3: Link model
+# Cell 3: Link model và data
 !ln -s /kaggle/input/siku-roberta ./SIKU-BERT
-
-# Cell 4: Setup data  
-!mkdir -p data/train data/val
+!mkdir -p data/train
 !ln -s /kaggle/input/your-dataset-name/*.parquet data/train/
-# Hoac copy 1 file lam validation:
-# !cp /kaggle/input/your-dataset-name/last_file.parquet data/val/
 
-# Cell 5: Train (One-Stage Punctuation)
-!python -u run.py train_single \
+# Cell 4: Train với QLoRA
+!python -u run.py train \
     -p \
     --feat=SIKU-BERT \
     --data=data \
     --batch_size=32 \
     --task=punctuation \
-    -d=0 \
-    -f=exp/SIKU-BERT.blstm.crf.kaggle
+    --use_qlora \
+    -f=exp/SIKU-BERT.blstm.crf.qlora
 ```
-
-### Bước 4: Lưu model
-
-Sau khi train xong, model được lưu tại:
-```
-exp/SIKU-BERT.blstm.crf.kaggle/model.pth
-```
-
-Download file này để sử dụng cho prediction.
-
-### ⚙️ Tham số có thể điều chỉnh
-
-| Param | Default | Mô tả |
-|-------|---------|-------|
-| `--batch_size` | 32 | Giảm xuống 16 hoặc 8 nếu gặp OOM |
-| `--task` | `punctuation` | Đổi sang `segmentation` cho bài toán phân đoạn từ |
-| `--data` | `data` | Đường dẫn đến thư mục chứa parquet |
-| `-d` | `0` | GPU device ID |
-
-### ❗ Xử lý lỗi thường gặp trên Kaggle
-
-| Lỗi | Giải pháp |
-|-----|-----------|
-| `CUDA out of memory` | Giảm `--batch_size` (32 → 16 → 8) |
-| `FileNotFoundError: SIKU-BERT` | Kiểm tra symlink `ln -s` đến model |
-| `No parquet files found` | Kiểm tra đường dẫn dataset, thử `!ls /kaggle/input/` |
-| `ModuleNotFoundError: datasets` | Chạy `!pip install datasets` |
 
 ---
 
 ## Training Locally
 
-### One-Stage (Single CRF) — Recommended
-
-```bash
-python -u run.py train_single \
-    -p \
-    --feat=SIKU-BERT \
-    --data=data \
-    --batch_size=50 \
-    --task=punctuation \
-    -d=0 \
-    -f=exp/SIKU-BERT.blstm.crf.single
-```
-
-### Two-Stage (Dual CRF)
+Tất cả các lượt chạy huấn luyện hiện nay đều được tối ưu hóa với **QLoRA**.
 
 ```bash
 python -u run.py train \
@@ -231,65 +168,55 @@ python -u run.py train \
     --data=data \
     --batch_size=50 \
     --task=punctuation \
+    --use_qlora \
     -d=0 \
-    -f=exp/SIKU-BERT.blstm.crf.dual
+    -f=exp/SIKU-BERT.blstm.crf.local
 ```
 
-### With SLURM
+### ⚙️ Các tham số quan trọng
 
-```bash
-sbatch train_single.slurm    # One-Stage
-sbatch train.slurm            # Two-Stage
-```
+| Param | Mô tả |
+|-------|-------|
+| `--use_qlora` | **Bắt buộc**. Kích hoạt 4-bit quantization và LoRA adapters. |
+| `--batch_size` | Kích thước batch. Giảm xuống nếu gặp lỗi OOM. |
+| `--task` | `punctuation` (dấu câu) hoặc `segmentation` (ngắt câu). |
+| `--save_steps` | Tần suất lưu checkpoint (mặc định 10,000 steps). |
 
 ---
 
 ## Resume Training
 
-If your training is interrupted (e.g., OOM, time limit, manual stop), you can resume from the last saved checkpoint. The model weights (including QLoRA adapters), optimizer state, scheduler state, current step, and training epoch will be restored automatically.
-
-By default, the model saves a working checkpoint (`model.pth`) every **10,000 steps** (mid-epoch) to prevent data loss on time-limited servers. The best model based on validation F1 score is saved separately as `model_best.pth`.
+Nếu quá trình huấn luyện bị gián đoạn (do hết thời gian trên Kaggle hoặc lỗi mạng), bạn có thể tiếp tục từ checkpoint gần nhất. Hệ thống sẽ tự động khôi phục:
+- Model weights & LoRA adapters.
+- Optimizer & Scheduler states.
+- Epoch và Step hiện tại.
 
 ```bash
-# Resume One-Stage Training
-python -u run.py train_single \
+python -u run.py train \
     --feat=SIKU-BERT \
     --data=data \
     --task=punctuation \
-    -d=0 \
-    --save_steps=10000 \
-    -f=exp/SIKU-BERT.blstm.crf.single \
-    --resume
-
-# Resume with QLoRA (Must include --use_qlora)
-python -u run.py train_single \
-    --feat=SIKU-BERT \
-    --data=data \
-    --task=punctuation \
-    -d=0 \
-    --save_steps=5000 \
-    -f=exp/SIKU-BERT.blstm.crf.single \
-    --use_qlora --resume
+    --use_qlora \
+    --resume \
+    -f=exp/SIKU-BERT.blstm.crf.local
 ```
+
+> [!TIP]
+> Bạn nên đặt `--save_steps` nhỏ hơn (ví dụ: 2000 hoặc 5000) nếu môi trường huấn luyện không ổn định để tránh mất quá nhiều tiến trình.
 
 ---
 
 ## Prediction
 
-```bash
-# One-Stage
-python -u run.py predict_single \
-    --feat=SIKU-BERT \
-    --data=path/to/test_data \
-    -d=0 \
-    -f=exp/SIKU-BERT.blstm.crf.single
+Sử dụng model đã huấn luyện để dự đoán nhãn cho dữ liệu mới.
 
-# Two-Stage
+```bash
 python -u run.py predict \
     --feat=SIKU-BERT \
     --data=path/to/test_data \
+    --use_qlora \
     -d=0 \
-    -f=exp/SIKU-BERT.blstm.crf.dual
+    -f=exp/SIKU-BERT.blstm.crf.local
 ```
 
 ---
@@ -301,37 +228,14 @@ SikuRobertaBiLSTMCRF/
 ├── run.py                    # Entry point
 ├── config.ini                # Model hyperparameters
 ├── requirements.txt          # Dependencies
-├── kaggle_notebook.py        # Kaggle training script
-├── SIKU-BERT/                # Pre-trained SikuRoBERTa (download separately)
 ├── data/                     # Training data (.parquet files)
-│   ├── train/
-│   └── val/
-├── dataset/                  # LLM-generated supplementary data
-│   ├── train.json
-│   └── dev.json
 ├── parsering/
-│   ├── BasePlusModel.py      # roberta_bilstm_crf model
-│   ├── config.py             # Config parser
-│   ├── task_config.py        # Task-specific label definitions
+│   ├── BasePlusModel.py      # roberta_bilstm_crf architecture
 │   ├── cmd/
-│   │   ├── cmd_single.py     # Single CRF command base
-│   │   ├── cmd_gram.py       # Dual CRF command base
-│   │   ├── train_single.py   # One-stage trainer
-│   │   ├── train_gram.py     # Two-stage trainer
-│   │   ├── predict_single.py # One-stage predictor
-│   │   └── predict_gram.py   # Two-stage predictor
-│   ├── modules/              # Neural network components
-│   │   ├── bert.py           # BERT embedding layer
-│   │   ├── bilstm.py         # BiLSTM layer
-│   │   ├── crf.py            # CRF layer
-│   │   └── mlp.py            # MLP layer
-│   └── utils/
-│       ├── common.py         # Constants & punctuation maps
-│       ├── load.py           # Original data loader (txt/corpus)
-│       ├── load_single.py    # Single-task data loader (txt)
-│       ├── load_streaming.py # Streaming parquet loader ⭐
-│       └── metric.py         # Evaluation metrics
-└── exp/                      # Saved models (created during training)
+│   │   ├── train_single.py   # Trainer logic
+│   │   └── predict_single.py # Predictor logic
+│   └── modules/              # Neural network components (BERT, BiLSTM, CRF, MLP)
+└── exp/                      # Saved models & LoRA adapters
 ```
 
 ---

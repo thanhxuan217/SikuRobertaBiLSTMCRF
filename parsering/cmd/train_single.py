@@ -148,7 +148,8 @@ class Train_single(CMD):
         total_time = timedelta()
         best_e, best_metric = 1, Metric()
         saved_best_model = False
-        start_epoch = 1
+        start_step = 0
+        best_step = 0
 
         if getattr(args, 'resume', False) and os.path.exists(args.save_model):
             print(f"Resuming from checkpoint {args.save_model}...")
@@ -184,27 +185,39 @@ class Train_single(CMD):
             if 'scheduler' in checkpoint:
                 self.scheduler.load_state_dict(checkpoint['scheduler'])
                 print("Restored scheduler state.")
-            if 'epoch' in checkpoint:
-                start_epoch = checkpoint['epoch'] + 1
             if 'best_metric' in checkpoint:
                 best_metric = checkpoint['best_metric']
             if 'best_e' in checkpoint:
-                best_e = checkpoint['best_e']
+                best_step = checkpoint['best_e']
             start_step = checkpoint.get('step', 0)
-            if start_step > 0:
-                print(f"Resuming training starting from epoch {start_epoch}, step {start_step}")
-            else:
-                print(f"Resuming training starting from epoch {start_epoch}")
-        else:
-            start_step = 0
+            print(f"Resuming training starting from global step {start_step}")
 
-        for epoch in range(start_epoch, args.epochs + 1):
+        def infinite_loader(dataloader):
+            while True:
+                for batch in dataloader:
+                    yield batch
+
+        train_iter = infinite_loader(self.trainset)
+        
+        if start_step > 0:
+            skip_batches = start_step % len(self.trainset)
+            if skip_batches > 0:
+                print(f"Fast-forwarding iterator by {skip_batches} batches...")
+                for _ in range(skip_batches):
+                    next(train_iter)
+                    
+        global_step = start_step
+        max_steps = getattr(args, 'max_steps', 100000)
+        eval_steps = getattr(args, 'eval_steps', 5000)
+
+        while global_step < max_steps:
+            steps_to_run = min(eval_steps, max_steps - global_step)
             start = datetime.now()
-            print(f"Epoch {epoch} / {args.epochs}:")
+            print(f"Training steps {global_step + 1} to {global_step + steps_to_run} / {max_steps}:")
 
-            train_stats = self.train(self.trainset, epoch=epoch, start_step=start_step, best_metric=best_metric, best_e=best_e)
-            # Reset start_step after the first resumed epoch finishes so the next epoch starts from 0
-            start_step = 0
+            train_stats = self.train(train_iter, steps_to_run=steps_to_run, global_step=global_step, best_metric=best_metric, best_e=best_step)
+            global_step += steps_to_run
+
             print(
                 f"{'train:':6} Loss: {train_stats['avg_loss']:.4f} | "
                 f"Time: {timedelta(seconds=int(train_stats['elapsed_seconds']))}"
@@ -218,28 +231,28 @@ class Train_single(CMD):
             best_model_path = args.save_model.replace('.pth', '_best.pth') if args.save_model.endswith('.pth') else args.save_model + '_best'
             # save the model if it is the best so far
             if metric_punc > best_metric:
-                best_e, best_metric = epoch, metric_punc
-                self.model.save(best_model_path, optimizer=self.optimizer.state_dict(), scheduler=self.scheduler.state_dict(), epoch=epoch, best_metric=best_metric, best_e=best_e)
+                best_step, best_metric = global_step, metric_punc
+                self.model.save(best_model_path, optimizer=self.optimizer.state_dict(), scheduler=self.scheduler.state_dict(), epoch=0, step=global_step, best_metric=best_metric, best_e=best_step)
                 saved_best_model = True
                 print(f"{t} elapsed (saved best metric to {best_model_path})\n")
             else:
                 print(f"{t} elapsed\n")
                 
-            # Unconditionally save latest state at the end of the epoch
-            self.model.save(args.save_model, optimizer=self.optimizer.state_dict(), scheduler=self.scheduler.state_dict(), epoch=epoch, step=0, best_metric=best_metric, best_e=best_e)
-            print(f"(saved current epoch-end state to {args.save_model})\n")
+            # Unconditionally save latest state
+            self.model.save(args.save_model, optimizer=self.optimizer.state_dict(), scheduler=self.scheduler.state_dict(), epoch=0, step=global_step, best_metric=best_metric, best_e=best_step)
+            print(f"(saved current state to {args.save_model})\n")
             total_time += t
 
-            completed_ratio = epoch / args.epochs * 100
-            avg_epoch_time = total_time / epoch
-            remaining_epochs = args.epochs - epoch
-            eta_remaining = avg_epoch_time * remaining_epochs
+            completed_ratio = global_step / max_steps * 100
             print(
-                f"[progress] epoch {epoch}/{args.epochs} ({completed_ratio:.1f}%) | "
-                f"total_elapsed={total_time} | est_remaining={eta_remaining}\n"
+                f"[progress] step {global_step}/{max_steps} ({completed_ratio:.1f}%) | "
+                f"total_elapsed={total_time}\n"
             )
 
-            if epoch - best_e >= args.patience:
+            patience_intervals = getattr(args, 'patience', 10)
+            patience_steps = patience_intervals * eval_steps
+            if global_step - best_step >= patience_steps:
+                print(f"Early stopping triggered! No improvement for {patience_steps} steps.")
                 break
 
         if not saved_best_model:
@@ -249,15 +262,10 @@ class Train_single(CMD):
                 f"Saving the final model to {best_model_path}."
             )
             try:
-                self.model.save(best_model_path, optimizer=self.optimizer.state_dict(), scheduler=self.scheduler.state_dict(), epoch=epoch, step=0, best_metric=best_metric, best_e=best_e)
+                self.model.save(best_model_path, optimizer=self.optimizer.state_dict(), scheduler=self.scheduler.state_dict(), epoch=0, step=global_step, best_metric=best_metric, best_e=best_step)
             except UnboundLocalError:
-                # Tránh lỗi nếu `epoch` chưa hề tồn tại (dữ liệu train rỗng)
                 self.model.save(best_model_path)
             saved_best_model = True
-            try:
-                best_e = epoch
-            except UnboundLocalError:
-                best_e = 1
 
         best_model_path = args.save_model.replace('.pth', '_best.pth') if args.save_model.endswith('.pth') else args.save_model + '_best'
         if os.path.exists(best_model_path):
@@ -273,8 +281,7 @@ class Train_single(CMD):
             )
         loss, metric_punc = self.evaluate(self.devset)
 
-        print(f"max score of dev is {best_metric.score:.2%} at epoch {best_e}")
-        print(f"the loss of dev at epoch {best_e} is {loss:.2f}")
+        print(f"max score of dev is {best_metric.score:.2%} at step {best_step}")
+        print(f"the loss of dev at step {best_step} is {loss:.2f}")
 
-        print(f"average time of each epoch is {total_time / epoch}s")
-        print(f"{total_time}s elapsed")
+        print(f"Total time elapsed: {total_time}s")

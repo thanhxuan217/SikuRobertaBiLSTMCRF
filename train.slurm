@@ -21,7 +21,9 @@ mkdir -p exp
 
 python -u run.py train \
     -p \
-    --epochs="2" \
+    --max_steps="100000" \
+    --eval_steps="5000" \
+    --val_batches="500" \
     --device="0" \
     --feat=$feat \
     --base_model="/media02/ddien02/thanhxuan217/main_src/pretrained/sikubert" \

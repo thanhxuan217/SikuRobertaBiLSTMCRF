@@ -54,8 +54,12 @@ if __name__ == '__main__':
                                help='whether to train jointly')
         subparser.add_argument('--batch_size', default=32, type=int,
                                help='batch size')
-        subparser.add_argument('--epochs', default=None, type=int,
-                               help='number of training epochs (overrides config.ini)')
+        subparser.add_argument('--max_steps', default=None, type=int,
+                               help='number of maximum training steps (overrides config.ini)')
+        subparser.add_argument('--eval_steps', default=None, type=int,
+                               help='validate and save checkpoint every N steps (overrides config.ini)')
+        subparser.add_argument('--val_batches', default=None, type=int,
+                               help='maximum validation batches to run per evaluation (overrides config.ini)')
         subparser.add_argument('--task', default='punctuation',
                                choices=['segmentation', 'punctuation'],
                                help='the task type to run')
@@ -113,7 +117,7 @@ if __name__ == '__main__':
     if cmd_args.get('base_model') is None:
         cmd_args.pop('base_model', None)
     # Remove None-valued optional args so they don't overwrite config.ini values
-    for key in ['lora_r', 'lora_alpha', 'lora_dropout', 'epochs']:
+    for key in ['lora_r', 'lora_alpha', 'lora_dropout', 'max_steps', 'eval_steps', 'val_batches']:
         if cmd_args.get(key) is None:
             cmd_args.pop(key, None)
 

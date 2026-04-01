@@ -52,22 +52,24 @@ class CMD(object):
     def _format_duration(seconds):
         return str(timedelta(seconds=int(seconds)))
 
-    def train(self, loader, epoch=1, start_step=0, best_metric=0.0, best_e=1):
+    def train(self, train_iter, steps_to_run, global_step, best_metric=0.0, best_e=1):
         """
-        Huấn luyện mô hình một epoch (luồng Single Task).
-        - Có bộ đếm tua nhanh (fast-forward) cho batch để resume giữa chừng.
+        Huấn luyện mô hình step-based (luồng Single Task).
         """
         self.model.train()
         torch.set_grad_enabled(True)
-        total_batches = len(loader)
         log_every = 1
         start_time = perf_counter()
         running_loss = 0.0
         batch_count = 0
 
-        for step, data in enumerate(loader, 1):
-            if step <= start_step:
-                continue
+        for step_i in range(1, steps_to_run + 1):
+            try:
+                data = next(train_iter)
+            except StopIteration:
+                break
+            
+            current_global_step = global_step + step_i
                 
             # Nhận data chỉ có chung 1 loại 'tags' duy nhất (thay vì stop_tags và non_stop_tags như gram model)
             ((chars, bi_chars, bert_input, attention_mask, mask), tags) = data
@@ -81,7 +83,7 @@ class CMD(object):
             ret = self.model(feed_dict, tags)
             loss = ret['loss']
             running_loss += loss.item()
-            batch_count = step
+            batch_count = step_i
             
             # Backpropagation
             loss.backward()
@@ -91,30 +93,30 @@ class CMD(object):
             self.optimizer.step()
             self.scheduler.step()
 
-            if step == 1 or step % log_every == 0 or step == total_batches:
+            if step_i == 1 or step_i % log_every == 0 or step_i == steps_to_run:
                 elapsed = perf_counter() - start_time
-                passed_steps = max(1, step - start_step)
-                avg_loss = running_loss / passed_steps
-                progress = step / total_batches * 100
-                eta_seconds = (elapsed / passed_steps) * (total_batches - step)
+                avg_loss = running_loss / step_i
+                total_steps = getattr(self.args, 'max_steps', current_global_step)
+                progress = current_global_step / total_steps * 100
+                eta_seconds = (elapsed / step_i) * (total_steps - current_global_step)
                 print(
-                    f"[train] {step}/{total_batches} ({progress:5.1f}%) | "
+                    f"[train] {current_global_step}/{total_steps} ({progress:5.1f}%) | "
                     f"loss={avg_loss:.4f} | elapsed={self._format_duration(elapsed)} | "
                     f"eta={self._format_duration(eta_seconds)}"
                 )
                 
             # Mid-epoch save checkpoint
-            if step % self.args.save_steps == 0:
-                print(f"Mid-epoch saving checkpoint at step {step}...")
+            if getattr(self.args, 'save_steps', 0) > 0 and current_global_step % self.args.save_steps == 0:
+                print(f"Mid-epoch saving checkpoint at step {current_global_step}...")
                 self.model.save(self.args.save_model, 
                                 optimizer=self.optimizer.state_dict(), 
                                 scheduler=self.scheduler.state_dict(), 
-                                epoch=epoch, step=step, 
+                                epoch=0, step=current_global_step, 
                                 best_metric=best_metric, best_e=best_e)
 
         elapsed = perf_counter() - start_time
-        passed_steps = max(1, batch_count - start_step)
-        avg_loss = running_loss / passed_steps if batch_count > start_step else 0.0
+        passed_steps = max(1, batch_count)
+        avg_loss = running_loss / passed_steps
         print(
             f"[train] completed | batches={batch_count} | "
             f"avg_loss={avg_loss:.4f} | time={self._format_duration(elapsed)}"
@@ -137,7 +139,10 @@ class CMD(object):
         total_loss, metric_pos = 0, PosMetric()
         total_re, total_num = 0, 0
 
-        for data in loader:
+        for step, data in enumerate(loader):
+            if hasattr(self.args, 'val_batches') and getattr(self.args, 'val_batches') is not None:
+                if step >= self.args.val_batches:
+                    break
             ((chars, bi_chars, bert_input, attention_mask, mask), tags) = data
             self.optimizer.zero_grad()
 
