@@ -10,6 +10,7 @@ Hỗ trợ QLoRA: khi bật --use_qlora, dùng paged_adamw_8bit và chỉ optimi
 
 from datetime import datetime, timedelta
 import os
+import torch
 
 from .cmd_single import CMD
 
@@ -36,6 +37,61 @@ class Train_single(CMD):
                                help='path to train file')
         return subparser
 
+    def _move_qlora_to_gpu(self, device):
+        """
+        Đảm bảo toàn bộ model params nằm trên GPU cho QLoRA.
+        BERT quantized weights đã trên GPU nhờ device_map="auto".
+        Cần move: char_embed, lstm, mlp, crf, projection, LoRA adapters.
+        """
+        # 1. Move các module KHÔNG phải BERT (char_embed, lstm, mlp, crf, dropout...)
+        for name, module in self.model.named_children():
+            if name != 'feat_embed':
+                module.to(device)
+        
+        # 2. Move projection layer trong feat_embed (nếu có)
+        if hasattr(self.model.feat_embed, 'projection'):
+            self.model.feat_embed.projection.to(device)
+        
+        # 3. Move LoRA adapters — .to() trên PEFT model chỉ move float params, không chạm quantized weights
+        self.model.feat_embed.bert.to(device)
+        
+        # 4. Quét lại: nếu còn trainable param nào trên CPU thì ép move
+        #    (Bắt các trường hợp device_map="auto" hoặc PEFT init để sót)
+        moved_count = 0
+        for name, param in self.model.named_parameters():
+            if param.requires_grad and not param.is_cuda:
+                param.data = param.data.to(device)
+                if param.grad is not None:
+                    param.grad = param.grad.to(device)
+                moved_count += 1
+                print(f"  [QLoRA] Force-moved '{name}' ({param.shape}) -> {device}")
+        
+        # 5. Quét buffers (batch_norm running_mean, v.v.) - cũng cần trên cùng device
+        for name, buf in self.model.named_buffers():
+            if not buf.is_cuda:
+                # Chỉ move buffer của các module không phải BERT quantized
+                if 'feat_embed.bert' not in name:
+                    buf.data = buf.data.to(device)
+        
+        if moved_count > 0:
+            print(f"  [QLoRA] Đã force-move {moved_count} params lên {device}")
+        else:
+            print(f"  [QLoRA] Tất cả trainable params đã trên {device}")
+
+    def _move_optimizer_to_gpu(self, device):
+        """
+        Move tất cả optimizer states lên GPU.
+        Cần thiết sau khi load checkpoint với map_location='cpu'.
+        """
+        moved = 0
+        for state in self.optimizer.state.values():
+            for key, val in state.items():
+                if isinstance(val, torch.Tensor) and not val.is_cuda:
+                    state[key] = val.to(device)
+                    moved += 1
+        if moved > 0:
+            print(f"  [QLoRA] Moved {moved} optimizer state tensors -> {device}")
+
     def __call__(self, args):
         super(Train_single, self).__call__(args)
         print('Preprocess the data')
@@ -54,19 +110,16 @@ class Train_single(CMD):
 
         use_qlora = getattr(args, 'use_qlora', False)
 
+        # QLoRA bắt buộc phải có CUDA/GPU
+        if use_qlora and not torch.cuda.is_available():
+            raise RuntimeError(
+                "QLoRA yêu cầu GPU (CUDA). Không phát hiện GPU khả dụng.\n"
+                "Hãy chạy lại mà không dùng --use_qlora, hoặc kiểm tra CUDA_VISIBLE_DEVICES."
+            )
+
         self.model = self.model_cl(args)
         if use_qlora:
-            # QLoRA: BERT đã load lên GPU qua device_map="auto" nếu dùng bitsandbytes,
-            # Move các module khác (char_embed, lstm, mlp, crf) sang GPU
-            for name, module in self.model.named_children():
-                if name != 'feat_embed':
-                    module.to(args.device)
-            # Đảm bảo projection layer (nếu có) cũng trên GPU
-            if hasattr(self.model.feat_embed, 'projection'):
-                self.model.feat_embed.projection.to(args.device)
-            # PEFT model hỗ trợ .to() an toàn để chuyển LoRA adapters lên GPU
-            # Không gán thủ công vào p.data để tránh optimizer nhận diệ device sai
-            self.model.feat_embed.bert.to(args.device)
+            self._move_qlora_to_gpu(args.device)
         else:
             self.model = self.model.to(args.device)
 
@@ -107,12 +160,14 @@ class Train_single(CMD):
                 {'params': self.model.mlp.parameters(), 'lr': lr * times, 'weight_decay': weight_decay},
             ]
             
+            param_groups = [
+                {'params': lora_params, 'lr': lr},
+                {'params': non_head_params, 'lr': lr},
+            ] + head_params
+            
             # Dùng Paged AdamW 8-bit để tiết kiệm VRAM cho optimizer states
             self.optimizer = bnb.optim.PagedAdamW8bit(
-                [
-                    {'params': lora_params, 'lr': lr},
-                    {'params': non_head_params, 'lr': lr},
-                ] + head_params,
+                param_groups,
                 lr=lr,
                 betas=(args.mu, args.nu),
                 eps=args.epsilon,
@@ -153,7 +208,6 @@ class Train_single(CMD):
 
         if getattr(args, 'resume', False) and os.path.exists(args.save_model):
             print(f"Resuming from checkpoint {args.save_model}...")
-            import torch
             from parsering.checkpoint import load_checkpoint
             try:
                 from safetensors.torch import load_file as safe_load_file
@@ -179,8 +233,15 @@ class Train_single(CMD):
                     set_peft_model_state_dict(self.model.feat_embed.bert, lora_weights)
             self.model.load_state_dict(state_dict, strict=False)
             
+            # Sau khi load state_dict từ CPU, đảm bảo model params lại trên GPU
+            if use_qlora:
+                self._move_qlora_to_gpu(args.device)
+            
             if 'optimizer' in checkpoint:
                 self.optimizer.load_state_dict(checkpoint['optimizer'])
+                # Move optimizer states lên GPU (checkpoint load với map_location='cpu')
+                if use_qlora:
+                    self._move_optimizer_to_gpu(args.device)
                 print("Restored optimizer state.")
             if 'scheduler' in checkpoint:
                 self.scheduler.load_state_dict(checkpoint['scheduler'])
