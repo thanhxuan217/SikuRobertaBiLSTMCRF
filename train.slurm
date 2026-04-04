@@ -11,7 +11,7 @@
 #SBATCH --time=48:00:00
 
 source /media02/ddien02/datnd/miniconda3/etc/profile.d/conda.sh
-conda activate /media02/ddien02/thanhxuan217/envs/sikubert
+conda activate /media02/ddien02/thanhxuan217/envs/bert_bilstm_crf
 
 data="/media02/ddien02/thanhxuan217/main_src/data_punc"
 feat="SIKU-BERT"
