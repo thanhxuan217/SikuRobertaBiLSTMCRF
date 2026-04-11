@@ -136,10 +136,14 @@ class roberta_bilstm_crf(nn.Module):
         return ret
 
     @classmethod
-    def load(cls, path):
+    def load(cls, path, base_model=None):
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         state = load_checkpoint(path, map_location=device)
         args = restore_args(state['args'])
+        
+        # Override base_model nếu được chỉ định (vì checkpoint có thể lưu đường dẫn cũ)
+        if base_model is not None:
+            args.base_model = base_model
         
         # Khi load, tắt QLoRA để tránh re-quantize
         # LoRA weights đã được merge hoặc load riêng

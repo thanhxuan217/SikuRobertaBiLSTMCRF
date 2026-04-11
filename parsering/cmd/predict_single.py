@@ -172,7 +172,8 @@ class Predict_single(CMD):
 
         print('Load the model.')
         # Khôi phục (Load) mô hình Single-Task đã huấn luyện 
-        self.model = self.model_cl.load(args.save_model)
+        self.model = self.model_cl.load(args.save_model,
+                                         base_model=getattr(args, 'base_model', None))
         print(self.model)
 
         if getattr(args, 'streaming', False):
