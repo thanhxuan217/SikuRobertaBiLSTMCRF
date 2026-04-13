@@ -218,7 +218,12 @@ class Train_single(CMD):
             
             state_dict = checkpoint['state_dict']
             if use_qlora:
-                lora_dir = os.path.join(os.path.dirname(args.save_model), 'lora_adapters')
+                base_name = os.path.splitext(os.path.basename(args.save_model))[0]
+                lora_dir = os.path.join(os.path.dirname(args.save_model), f'lora_adapters_{base_name}')
+                if not os.path.exists(lora_dir):
+                    old_lora_dir = os.path.join(os.path.dirname(args.save_model), 'lora_adapters')
+                    if os.path.exists(old_lora_dir):
+                        lora_dir = old_lora_dir
                 if os.path.exists(lora_dir):
                     print(f"Loading LoRA adapters from {lora_dir}...")
                     from peft import set_peft_model_state_dict

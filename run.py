@@ -99,7 +99,10 @@ if __name__ == '__main__':
     torch.set_num_threads(args.threads)
     seed_torch(args.seed)
 
-    args.save_model = os.path.join(args.file, 'model.pth')
+    if args.file.endswith('.pth'):
+        args.save_model = args.file
+    else:
+        args.save_model = os.path.join(args.file, 'model.pth')
     
     cuda_available = torch.cuda.is_available()
     print(f"CUDA is available: {cuda_available}")

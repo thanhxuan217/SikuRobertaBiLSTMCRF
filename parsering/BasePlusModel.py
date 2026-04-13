@@ -153,18 +153,28 @@ class roberta_bilstm_crf(nn.Module):
         model = cls(args)
         
         # Load LoRA adapter weights nếu có
-        lora_dir = os.path.join(os.path.dirname(path), 'lora_adapters')
+        base_name = os.path.splitext(os.path.basename(path))[0]
+        lora_dir = os.path.join(os.path.dirname(path), f'lora_adapters_{base_name}')
+        # Fallback cho checkpoint cũ
+        if not os.path.exists(lora_dir):
+            old_lora_dir = os.path.join(os.path.dirname(path), 'lora_adapters')
+            if os.path.exists(old_lora_dir):
+                lora_dir = old_lora_dir
+
         if original_qlora and os.path.exists(lora_dir):
+            print(f"[QLoRA Inference] Tự động tải LoRA adapters từ {lora_dir}")
             from peft import PeftModel
             model.feat_embed.bert = PeftModel.from_pretrained(
                 model.feat_embed.bert, lora_dir
             )
             # Merge LoRA weights để inference nhanh hơn
+            print(f"[QLoRA Inference] Đang gộp (merge) trọng số LoRA vào backbone...")
             model.feat_embed.bert = model.feat_embed.bert.merge_and_unload()
             # Load phần còn lại (non-BERT weights)
             non_bert_state = {k: v for k, v in state['state_dict'].items() 
                             if 'feat_embed.bert' not in k}
             model.load_state_dict(non_bert_state, strict=False)
+            print(f"[QLoRA Inference] Tải trọng số QLoRA thành công!")
         else:
             model.load_state_dict(state['state_dict'], False)
         
@@ -175,8 +185,9 @@ class roberta_bilstm_crf(nn.Module):
         state_dict, pretrained = self.state_dict(), None
         
         if self.use_qlora:
-            # Lưu LoRA adapters riêng
-            lora_dir = os.path.join(os.path.dirname(path), 'lora_adapters')
+            # Lưu LoRA adapters riêng theo tên file (VD: lora_adapters_model_best)
+            base_name = os.path.splitext(os.path.basename(path))[0]
+            lora_dir = os.path.join(os.path.dirname(path), f'lora_adapters_{base_name}')
             self.feat_embed.bert.save_pretrained(lora_dir)
             print(f"LoRA adapters saved to {lora_dir}")
             
